@@ -2,7 +2,6 @@ import pkg from "pg";
 const { Client } = pkg;
 import { useState } from "react";
 
-
 export async function getStaticProps() {
   const client = new Client({
     connectionString: process.env.DATABASE_URL, // Replit provides this automatically
@@ -23,7 +22,6 @@ export async function getStaticProps() {
 
     const faqs = result.rows.map((row) => ({
       slug: row.slug,
-      url: row.file_path,
       name: row.human_readable_name || row.slug.replace(/-/g, " "), // Fallback to slug if name is missing
     }));
 
@@ -36,7 +34,7 @@ export async function getStaticProps() {
   }
 }
 
-// Place `Home` component in `index.js` for the main page
+// Main component for the homepage
 export default function Home({ faqs }) {
   const [loading, setLoading] = useState(false);
 
@@ -60,19 +58,13 @@ export default function Home({ faqs }) {
       {faqs.length === 0 ? (
         <p>No FAQs available. Please try again later.</p>
       ) : (
-        <table className="faq-table">
-          <tbody>
-            {faqs.map((faq) => (
-              <tr key={faq.slug}>
-                <td className="faq-link">
-                  <a href={faq.url} target="_blank" rel="noopener noreferrer">
-                    {faq.name}
-                  </a>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ul className="faq-list">
+          {faqs.map((faq) => (
+            <li key={faq.slug}>
+              <a href={`/faqs/${faq.slug}`}>{faq.name}</a>
+            </li>
+          ))}
+        </ul>
       )}
       <button onClick={handleGenerateClick} disabled={loading}>
         {loading ? "Generating..." : "Generate 50 More Articles"}
@@ -88,21 +80,20 @@ export default function Home({ faqs }) {
           text-align: center;
           margin-bottom: 24px;
         }
-        .faq-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 16px;
+        .faq-list {
+          list-style-type: none;
+          padding: 0;
+          margin: 0;
         }
-        .faq-table td {
-          padding: 12px;
-          border-bottom: 1px solid #ddd;
+        .faq-list li {
+          margin: 8px 0;
         }
-        .faq-link a {
+        .faq-list a {
           text-decoration: none;
           color: #007bff;
           font-weight: bold;
         }
-        .faq-link a:hover {
+        .faq-list a:hover {
           text-decoration: underline;
         }
         button {
