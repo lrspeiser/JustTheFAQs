@@ -25,7 +25,17 @@ const tools = [
     type: "function",
     function: {
       name: "generate_structured_faqs",
-      description: "Generate structured FAQs with subheaders, cross-links, and media links from Wikipedia content. Try to be very thorough, capturing the most important information from the article in a question and answer format. If there are links to image media, make sure we embed those links with the answers.",
+      description: `Generate structured FAQs with subheaders, cross-links, and media links from Wikipedia content. I want to rewrite content from a Wikipedia page in a Q&A format, making it engaging, informative, and concise. The goal is to present the most important concepts as direct questions followed by insightful answers. Use the following guidelines:
+
+      1. Identify the core concepts from the source content.
+      2. Frame each concept as a clear, focused question that an average reader might ask.
+      3. Provide an accurate and well-structured answer, incorporating relevant details to enhance understanding without repeating content word-for-word.
+      4. Use subcategories and examples where relevant to break down complex answers into simpler parts.
+      5. Avoid unnecessary jargon and keep explanations clear for a non-specialist audience.
+
+      Here’s an example format for reference:
+      What is a leveraged buyout?
+      A leveraged buyout (LBO) is a transaction where a company’s assets or stock are purchased primarily using borrowed funds, resulting in a capital structure dominated by debt. This is often executed through a new entity created by the buyer, followed by a merger to secure the target company’s assets. There are various forms of LBOs, such as management buyouts (MBOs), where existing managers become shareholders, and employee buyouts (EBOs), where employees use funds from an ESOP (employee stock ownership plan) to acquire the company.`,
       parameters: {
         type: "object",
         properties: {
@@ -63,6 +73,7 @@ const tools = [
 ];
 
 
+
 // Fetch Wikipedia metadata
 const fetchWikipediaMetadata = async (title) => {
   const endpoint = `https://en.wikipedia.org/w/api.php`;
@@ -90,21 +101,28 @@ const fetchWikipediaMetadata = async (title) => {
 };
 
 const saveMetadata = async (slug, humanReadableName) => {
-  const relativeFilePath = `/data/faqs/${slug}.html`;
+  const relativeFilePath = `/data/faqs/${slug}.html`; // Construct file path
   const metadataQuery = `
     INSERT INTO faq_files (slug, file_path, human_readable_name, created_at)
     VALUES ($1, $2, $3, NOW())
-    ON CONFLICT (slug) DO UPDATE SET file_path = EXCLUDED.file_path, human_readable_name = EXCLUDED.human_readable_name;
+    ON CONFLICT (slug) 
+    DO UPDATE SET 
+      file_path = EXCLUDED.file_path, 
+      human_readable_name = EXCLUDED.human_readable_name,
+      created_at = NOW(); -- Optional to update timestamp
   `;
   const metadataValues = [slug, relativeFilePath, humanReadableName];
 
+  console.log("[saveMetadata] Running query with values:", metadataValues);
+
   try {
-    await client.query(metadataQuery, metadataValues);
-    console.log(`[DB] Metadata saved for: ${slug}`);
+    const result = await client.query(metadataQuery, metadataValues);
+    console.log(`[saveMetadata] Metadata saved for: ${slug}`);
   } catch (err) {
     console.error("[saveMetadata] Error saving metadata:", err.message);
   }
 };
+
 
 
 
@@ -208,12 +226,6 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
     return;
   }
 
-  // Validate and format the timestamp
-  if (lastUpdated && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(lastUpdated)) {
-    console.warn(`[saveStructuredFAQ] Invalid timestamp format: ${lastUpdated}`);
-    lastUpdated = null; // Default to null if invalid
-  }
-
   const rawQuery = `
     INSERT INTO raw_faqs (url, title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -221,18 +233,17 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
   `;
 
   try {
-    // Process FAQs and fetch thumbnails
+    // Fetch thumbnails for each FAQ
     const faqWithThumbnails = await Promise.all(
       faqs.map(async (faq) => {
         const mediaLink = faq.media_links?.[0] || null;
         const thumbnailURL = mediaLink
-          ? await fetchThumbnailURL(mediaLink, 480) || generateThumbnailURL(mediaLink)
+          ? await fetchThumbnailURL(mediaLink, 480)
           : null;
         return { ...faq, thumbnailURL };
       })
     );
 
-    // Save FAQs to the database
     for (const faq of faqWithThumbnails) {
       const values = [
         url,
@@ -249,7 +260,6 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
       console.log(`[DB] FAQ saved: "${faq.question}" under "${faq.subheader || "No Subheader"}"`);
     }
 
-    // Generate HTML content for the FAQ page
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const htmlContent = `
       <!DOCTYPE html>
@@ -319,22 +329,21 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
         <div class="container">
           <h1>FAQs: ${humanReadableName}</h1>
           ${faqWithThumbnails
-            .map((faq) => {
-              const faqThumbnail = faq.thumbnailURL
-                ? `<img src="${faq.thumbnailURL}" alt="Related Image">`
-                : `<div style="width: 100px; height: 100px;"></div>`;
-              return `
-                <table class="faq-table">
-                  <tr>
-                    <td class="image-cell">
-                      ${faqThumbnail}
-                    </td>
-                    <td class="faq-content">
-                      <strong>${faq.subheader || "General"} - ${faq.question}</strong><br>${faq.answer}
-                    </td>
-                  </tr>
-                </table>`;
-            })
+            .map((faq) => `
+              <table class="faq-table">
+                <tr>
+                  <td class="image-cell">
+                    ${
+                      faq.thumbnailURL
+                        ? `<img src="${faq.thumbnailURL}" alt="Related Image">`
+                        : `<div style="width: 100px; height: 100px;"></div>`
+                    }
+                  </td>
+                  <td class="faq-content">
+                    <strong>${faq.subheader || "General"} - ${faq.question}</strong><br>${faq.answer}
+                  </td>
+                </tr>
+              </table>`)
             .join("\n")}
         </div>
       </body>
@@ -345,21 +354,11 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
     await fs.ensureDir(FAQ_DIR);
     await fs.writeFile(filePath, htmlContent, "utf8");
     console.log(`[saveStructuredFAQ] FAQ file created: ${filePath}`);
-
-    // Save metadata to the `faq_files` table
-    const metadataQuery = `
-      INSERT INTO faq_files (slug, file_path, human_readable_name, created_at)
-      VALUES ($1, $2, $3, NOW())
-      ON CONFLICT (slug) DO NOTHING;
-    `;
-    const metadataValues = [slug, `/data/faqs/${slug}.html`, humanReadableName];
-
-    await client.query(metadataQuery, metadataValues);
-    console.log(`[saveStructuredFAQ] Metadata saved for: ${slug}`);
   } catch (err) {
     console.error("[saveStructuredFAQ] Error saving FAQs or metadata:", err.message);
   }
 };
+
 
 
 
@@ -380,13 +379,20 @@ const normalizeMediaLink = (mediaLink) => {
 };
 
 const fetchThumbnailURL = async (mediaLink, size = 480) => {
-  const normalizedLink = normalizeMediaLink(mediaLink);
+  // Directly return the URL if it is already a Wikimedia image
+  if (mediaLink.startsWith("https://upload.wikimedia.org")) {
+    console.log(`[fetchThumbnailURL] Using existing media URL: ${mediaLink}`);
+    return mediaLink.replace(/\/[0-9]+px-/, `/${size}px-`); // Adjust size dynamically
+  }
 
+  // Normalize the media link for API usage
+  const normalizedLink = normalizeMediaLink(mediaLink);
   if (!normalizedLink) {
-    console.warn(`[fetchThumbnailURL] Invalid or empty media link: ${mediaLink}`);
+    console.warn(`[fetchThumbnailURL] Invalid media link: ${mediaLink}`);
     return null;
   }
 
+  // Query Wikipedia API for the thumbnail
   const endpoint = "https://en.wikipedia.org/w/api.php";
   const params = {
     action: "query",
@@ -400,19 +406,21 @@ const fetchThumbnailURL = async (mediaLink, size = 480) => {
     console.log(`[fetchThumbnailURL] Fetching thumbnail for: ${normalizedLink}`);
     const response = await axios.get(endpoint, { params });
     const page = Object.values(response.data.query.pages)[0];
-
     if (page?.thumbnail?.source) {
-      console.log(`[fetchThumbnailURL] Thumbnail URL: ${page.thumbnail.source}`);
+      console.log(`[fetchThumbnailURL] Fetched thumbnail: ${page.thumbnail.source}`);
       return page.thumbnail.source;
     } else {
       console.warn(`[fetchThumbnailURL] No thumbnail available for: ${normalizedLink}`);
       return null;
     }
   } catch (error) {
-    console.error(`[fetchThumbnailURL] Error fetching thumbnail for "${normalizedLink}": ${error.message}`);
+    console.error(`[fetchThumbnailURL] Error fetching thumbnail: ${error.message}`);
     return null;
   }
 };
+
+
+
 
 
 
@@ -432,42 +440,92 @@ const fetchTopWikipediaPages = async () => {
 
 // Main process
 const main = async (newPagesTarget = 5) => {
+  console.log("[main] Starting FAQ generation process...");
+
+  // Fetch top Wikipedia pages
   const titles = await fetchTopWikipediaPages();
   if (!titles.length) {
     console.error("[main] No titles fetched. Exiting...");
     return;
   }
 
-  for (const title of titles.slice(0, newPagesTarget)) {
-    const url = `https://en.wikipedia.org/wiki/${title}`;
-    const metadata = await fetchWikipediaMetadata(title);
-    const { lastUpdated, humanReadableName } = metadata;
+  let processedCount = 0;
 
-    // Generate slug for the file path
+  for (const title of titles) {
+    if (processedCount >= newPagesTarget) {
+      console.log(`[main] Processed ${processedCount} pages. Target reached.`);
+      break;
+    }
+
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
 
-    // Save metadata to `faq_files` table
-    await saveMetadata(slug, humanReadableName);
+    // Check if the slug already exists in the database
+    const query = `
+      SELECT slug FROM faq_files WHERE slug = $1;
+    `;
+    const values = [slug];
 
-
-    const wikipediaText = await fetchWikipediaPage(title);
-    if (!wikipediaText) {
-      console.error(`[main] Skipping ${title} due to empty content.`);
-      continue;
+    try {
+      const result = await client.query(query, values);
+      if (result.rows.length > 0) {
+        console.log(`[main] Skipping "${title}" as it already exists in the database.`);
+        continue; // Skip processing this title
+      }
+    } catch (error) {
+      console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
+      continue; // Skip this entry to prevent breaking the script
     }
 
-    const structuredFAQs = await generateStructuredFAQs(title, wikipediaText, lastUpdated);
-    if (!structuredFAQs) {
-      console.error(`[main] Skipping ${title} due to FAQ generation failure.`);
-      continue;
+    try {
+      // Fetch metadata for the page
+      const url = `https://en.wikipedia.org/wiki/${title}`;
+      const metadata = await fetchWikipediaMetadata(title);
+      const { lastUpdated, humanReadableName } = metadata;
+
+      if (!humanReadableName) {
+        console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
+        continue;
+      }
+
+      // Fetch the Wikipedia page content
+      const wikipediaText = await fetchWikipediaPage(title);
+      if (!wikipediaText) {
+        console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
+        continue;
+      }
+
+      // Generate structured FAQs
+      const structuredFAQs = await generateStructuredFAQs(title, wikipediaText, lastUpdated);
+      if (!structuredFAQs) {
+        console.error(`[main] Skipping "${title}" due to FAQ generation failure.`);
+        continue;
+      }
+
+      const { faqs, human_readable_name, last_updated } = structuredFAQs;
+
+      // Save the FAQs and metadata
+      await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
+
+      // Save metadata separately for visibility
+      await saveMetadata(slug, human_readable_name);
+
+      console.log(`[main] Successfully processed and saved FAQs for "${title}".`);
+      processedCount++; // Increment counter
+
+    } catch (error) {
+      console.error(`[main] Error processing "${title}":`, error.message);
+      continue; // Continue with the next title
     }
-
-    const { faqs, human_readable_name, last_updated } = structuredFAQs;
-
-    await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
-    console.log(`[main] FAQs for "${title}" saved to database and file system.`);
   }
+
+  if (processedCount < newPagesTarget) {
+    console.log(
+      `[main] Only ${processedCount} new pages were processed. Check database or adjust fetch size.`
+    );
+  }
+
+  console.log("[main] FAQ generation process completed.");
 };
 
-
-main(2);
+main(3);
