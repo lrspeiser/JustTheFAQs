@@ -4,10 +4,14 @@ import path from "path";
 import pkg from "pg";
 const { Client } = pkg;
 import OpenAI from "openai";
+import * as cheerio from "cheerio";
+
 
 const openai = new OpenAI({
   apiKey: process.env["OPENAI_API_KEY"],
 });
+
+
 
 // Database connection setup
 const client = new Client({
@@ -25,17 +29,7 @@ const tools = [
     type: "function",
     function: {
       name: "generate_structured_faqs",
-      description: `Generate structured FAQs with subheaders, cross-links, and media links from Wikipedia content. I want to rewrite content from a Wikipedia page in a Q&A format, making it engaging, informative, and concise. The goal is to present the most important concepts as direct questions followed by insightful answers. Use the following guidelines:
-
-      1. Identify the core concepts from the source content.
-      2. Frame each concept as a clear, focused question that an average reader might ask.
-      3. Provide an accurate and well-structured answer, incorporating relevant details to enhance understanding without repeating content word-for-word.
-      4. Use subcategories and examples where relevant to break down complex answers into simpler parts.
-      5. Avoid unnecessary jargon and keep explanations clear for a non-specialist audience.
-
-      Here’s an example format for reference:
-      What is a leveraged buyout?
-      A leveraged buyout (LBO) is a transaction where a company’s assets or stock are purchased primarily using borrowed funds, resulting in a capital structure dominated by debt. This is often executed through a new entity created by the buyer, followed by a merger to secure the target company’s assets. There are various forms of LBOs, such as management buyouts (MBOs), where existing managers become shareholders, and employee buyouts (EBOs), where employees use funds from an ESOP (employee stock ownership plan) to acquire the company.`,
+      description: "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs.",
       parameters: {
         type: "object",
         properties: {
@@ -58,7 +52,7 @@ const tools = [
                 media_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant media links from the content." },
-                  description: "Media links (e.g., images) relevant to the Q&A.",
+                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. Don't reuse the same image for more than one Q&A.",
                 },
               },
               required: ["subheader", "question", "answer"],
@@ -71,6 +65,7 @@ const tools = [
     },
   },
 ];
+
 
 
 
@@ -126,16 +121,48 @@ const saveMetadata = async (slug, humanReadableName) => {
 
 
 
+const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
+  // Estimate tokens based on characters (rough estimate: 4 characters = 1 token)
+  const charLimit = maxTokens * 4;
 
-// Generate structured FAQ data using OpenAI
-const generateStructuredFAQs = async (title, content, rawTimestamp) => {
+  if (content.length + mediaLinks.join("\n").length > charLimit) {
+    console.warn(
+      `[truncateContent] Content exceeds token limit. Truncating to ${maxTokens} tokens.`
+    );
+
+    // Truncate content
+    const truncatedContent = content.slice(0, charLimit - mediaLinks.join("\n").length - 1000);
+
+    // Return truncated content and media links
+    return {
+      truncatedContent,
+      truncatedMediaLinks: mediaLinks, // Media links remain unchanged
+    };
+  }
+
+  return {
+    truncatedContent: content,
+    truncatedMediaLinks: mediaLinks,
+  };
+};
+
+const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
   try {
+    const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
+
+    const contentWithImages = `
+      ${truncatedContent}
+      Relevant Images:
+      ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
+    `;
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-2024-08-06",
       messages: [
         {
           role: "system",
-          content: "You are a tool that extracts structured FAQ data and metadata from Wikipedia content.",
+          content:
+            "You are a brilliant writer that extracts structured FAQs from Wikipedia content. Start with the most interesting questions and use all of the content from the entire page to generate fascinating and accurate answers. Include all media links provided.",
         },
         {
           role: "user",
@@ -144,7 +171,7 @@ const generateStructuredFAQs = async (title, content, rawTimestamp) => {
 Title: ${title}
 Last Updated: ${rawTimestamp}
 Content:
-${content}`,
+${contentWithImages}`,
         },
       ],
       tools,
@@ -165,57 +192,70 @@ ${content}`,
 };
 
 
-const generateThumbnailURL = (mediaLink) => {
-  if (!mediaLink || !mediaLink.includes("/")) {
-    console.warn(`[generateThumbnailURL] Malformed media link: ${mediaLink}`);
-    return null;
-  }
-
-  const urlParts = mediaLink.split("/");
-  const filename = urlParts.pop(); // Get the file name
-  const path = urlParts.slice(-2).join("/"); // Get the last two parts of the path
-  const size = "480px"; // Define desired thumbnail size
-
-  return `https://upload.wikimedia.org/wikipedia/commons/thumb/${path}/${filename}/${size}-${filename}`;
+const validateMediaLinks = (mediaLinks) => {
+  return mediaLinks.map((link) => {
+    if (link.startsWith("//")) {
+      return `https:${link}`; // Add protocol to relative URLs
+    }
+    if (link.startsWith("https://")) {
+      return link; // Valid URL
+    }
+    console.warn(`[validateMediaLinks] Invalid media link format: ${link}`);
+    return null; // Exclude invalid links
+  }).filter(Boolean); // Remove null values
 };
+
 
 const fetchWikipediaPage = async (title) => {
   const endpoint = "https://en.wikipedia.org/w/api.php";
   const params = {
-    action: "expandtemplates",
-    text: `{{:${title}}}`,
-    prop: "wikitext",
+    action: "parse",
+    page: title,
+    prop: "text",
     format: "json",
   };
 
   try {
     console.log(`[fetchWikipediaPage] Fetching content for: ${title}`);
-    const response = await axios.get(endpoint, {
-      params,
-      headers: { "User-Agent": "justthefaqs/1.0 (justthefaqs@replit.app)" },
-    });
+    const response = await axios.get(endpoint, { params });
+    const page = response.data?.parse;
 
-    const content = response.data?.expandtemplates?.wikitext;
-
-    // Check for empty or malformed content
-    if (!content || content.trim() === "") {
-      console.error(`[fetchWikipediaPage] Error: Content is empty or invalid for ${title}`);
+    if (!page) {
+      console.error(`[fetchWikipediaPage] Page not found or missing for: ${title}`);
       return null;
     }
 
-    console.log(
-      `[fetchWikipediaPage] Content for ${title} (first 500 chars):\n${content.slice(0, 500)}`
-    );
+    const htmlContent = page.text?.["*"]; // The full HTML content of the page
+    if (!htmlContent) {
+      console.error(`[fetchWikipediaPage] No HTML content available for: ${title}`);
+      return null;
+    }
 
-    return content;
+    // Use Cheerio to parse the HTML and extract image links
+    const $ = cheerio.load(htmlContent);
+    const images = [];
+    $("img").each((_, img) => {
+      let src = $(img).attr("src");
+      if (src) {
+        if (src.startsWith("//")) {
+          src = `https:${src}`;
+        } else if (!src.startsWith("http")) {
+          src = `https://en.wikipedia.org${src}`;
+        }
+        images.push(src);
+      }
+    });
+
+    console.log(`[fetchWikipediaPage] Content fetched for ${title}:\n${htmlContent.slice(0, 500)}`);
+    console.log(`[fetchWikipediaPage] Media links fetched for ${title}:`, images);
+
+    return { content: htmlContent, images };
   } catch (error) {
-    console.error(
-      `[fetchWikipediaPage] Error fetching page "${title}": ${error.message}`,
-      error.response?.data || error
-    );
+    console.error(`[fetchWikipediaPage] Error fetching page "${title}": ${error.message}`);
     return null;
   }
 };
+
 
 
 
@@ -233,13 +273,16 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
   `;
 
   try {
-    // Fetch thumbnails for each FAQ
+    console.log("[saveStructuredFAQ] Raw media links before thumbnail generation:");
     const faqWithThumbnails = await Promise.all(
-      faqs.map(async (faq) => {
+      faqs.map(async (faq, index) => {
         const mediaLink = faq.media_links?.[0] || null;
         const thumbnailURL = mediaLink
           ? await fetchThumbnailURL(mediaLink, 480)
           : null;
+
+        console.log(`[saveStructuredFAQ] [FAQ ${index + 1}] Thumbnail URL:`, thumbnailURL);
+
         return { ...faq, thumbnailURL };
       })
     );
@@ -283,44 +326,51 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
             text-align: center;
             margin-bottom: 24px;
           }
-          .faq-table {
-            width: 100%;
-            border-collapse: collapse;
+          .faq-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
             margin-bottom: 16px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 16px;
           }
-          .faq-table td {
-            vertical-align: top;
-            padding: 8px;
+          .faq-entry .faq-content {
+            flex: 1;
+            text-align: left;
           }
-          .faq-table .image-cell {
-            width: 120px;
-            text-align: center;
-          }
-          .faq-table img {
-            max-width: 100px;
+          .faq-entry img {
+            max-width: 120px;
+            max-height: 120px;
+            margin-left: 16px;
             border-radius: 8px;
           }
-          .faq-content {
-            padding: 8px 16px;
+          .faq-subheader {
+            font-weight: bold;
+            margin-bottom: 8px;
+          }
+          .faq-question {
+            font-weight: bold;
+            margin: 4px 0;
+          }
+          .faq-answer {
+            margin: 4px 0;
+          }
+          .faq-links {
+            margin-top: 8px;
+            font-size: 0.9em;
+          }
+          .faq-links a {
+            text-decoration: none;
+            color: #0066cc;
           }
           @media (max-width: 600px) {
-            .faq-table {
-              display: block;
-            }
-            .faq-table tr {
-              display: flex;
-              flex-wrap: wrap;
-              margin-bottom: 16px;
-              border-bottom: 1px solid #ddd;
-            }
-            .faq-table td {
-              display: block;
-              width: 100%;
-            }
-            .faq-table .image-cell {
-              width: 100%;
+            .faq-entry {
+              flex-direction: column-reverse;
+              align-items: center;
               text-align: center;
-              margin-bottom: 8px;
+            }
+            .faq-entry img {
+              margin: 16px 0 0 0;
             }
           }
         </style>
@@ -329,21 +379,35 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
         <div class="container">
           <h1>FAQs: ${humanReadableName}</h1>
           ${faqWithThumbnails
-            .map((faq) => `
-              <table class="faq-table">
-                <tr>
-                  <td class="image-cell">
-                    ${
-                      faq.thumbnailURL
-                        ? `<img src="${faq.thumbnailURL}" alt="Related Image">`
-                        : `<div style="width: 100px; height: 100px;"></div>`
-                    }
-                  </td>
-                  <td class="faq-content">
-                    <strong>${faq.subheader || "General"} - ${faq.question}</strong><br>${faq.answer}
-                  </td>
-                </tr>
-              </table>`)
+            .map((faq) => {
+              const relatedLinks = faq.cross_links
+                ? faq.cross_links
+                    .map(
+                      (link) =>
+                        `<a href="/data/faqs/${link.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html">${link
+                          .split("/")
+                          .pop()
+                          .replace(/_/g, " ")}</a>`
+                    )
+                    .join(", ")
+                : "No related links.";
+
+              return `
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">${faq.subheader || "General"}</div>
+                    <div class="faq-question">${faq.question}</div>
+                    <div class="faq-answer">${faq.answer}</div>
+                    <div class="faq-links">Related topics: ${relatedLinks}</div>
+                  </div>
+                  ${
+                    faq.thumbnailURL
+                      ? `<img src="${faq.thumbnailURL}" alt="Related Image">`
+                      : ""
+                  }
+                </div>
+              `;
+            })
             .join("\n")}
         </div>
       </body>
@@ -365,6 +429,11 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
 
 
+
+
+
+
+
 const normalizeMediaLink = (mediaLink) => {
   if (!mediaLink) return null;
 
@@ -379,38 +448,42 @@ const normalizeMediaLink = (mediaLink) => {
 };
 
 const fetchThumbnailURL = async (mediaLink, size = 480) => {
-  // Directly return the URL if it is already a Wikimedia image
+  // Check if the mediaLink is a Wikimedia image
   if (mediaLink.startsWith("https://upload.wikimedia.org")) {
     console.log(`[fetchThumbnailURL] Using existing media URL: ${mediaLink}`);
     return mediaLink.replace(/\/[0-9]+px-/, `/${size}px-`); // Adjust size dynamically
   }
 
-  // Normalize the media link for API usage
-  const normalizedLink = normalizeMediaLink(mediaLink);
-  if (!normalizedLink) {
-    console.warn(`[fetchThumbnailURL] Invalid media link: ${mediaLink}`);
+  // Extract the file title from Wikipedia media links
+  const match = mediaLink.match(/\/File:(.+)$/);
+  if (!match) {
+    console.warn(`[fetchThumbnailURL] Invalid media link format: ${mediaLink}`);
     return null;
   }
 
-  // Query Wikipedia API for the thumbnail
+  const fileName = decodeURIComponent(match[1]);
+
+  // Query Wikipedia API for the actual thumbnail URL
   const endpoint = "https://en.wikipedia.org/w/api.php";
   const params = {
     action: "query",
-    titles: normalizedLink,
-    prop: "pageimages",
+    titles: `File:${fileName}`,
+    prop: "imageinfo",
+    iiprop: "url",
     format: "json",
-    pithumbsize: size,
+    iiurlwidth: size,
   };
 
   try {
-    console.log(`[fetchThumbnailURL] Fetching thumbnail for: ${normalizedLink}`);
+    console.log(`[fetchThumbnailURL] Fetching thumbnail for: ${fileName}`);
     const response = await axios.get(endpoint, { params });
     const page = Object.values(response.data.query.pages)[0];
-    if (page?.thumbnail?.source) {
-      console.log(`[fetchThumbnailURL] Fetched thumbnail: ${page.thumbnail.source}`);
-      return page.thumbnail.source;
+
+    if (page?.imageinfo?.[0]?.thumburl) {
+      console.log(`[fetchThumbnailURL] Fetched thumbnail URL: ${page.imageinfo[0].thumburl}`);
+      return page.imageinfo[0].thumburl;
     } else {
-      console.warn(`[fetchThumbnailURL] No thumbnail available for: ${normalizedLink}`);
+      console.warn(`[fetchThumbnailURL] No thumbnail found for: ${fileName}`);
       return null;
     }
   } catch (error) {
@@ -424,12 +497,13 @@ const fetchThumbnailURL = async (mediaLink, size = 480) => {
 
 
 
-const fetchTopWikipediaPages = async () => {
-  const url = "https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/2023/12/31";
+
+const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
+  const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/2023/12/31`;
   try {
-    console.log("[fetchTopWikipediaPages] Fetching top Wikipedia pages...");
+    console.log(`[fetchTopWikipediaPages] Fetching Wikipedia pages (offset: ${offset}, limit: ${limit})...`);
     const response = await axios.get(url);
-    const articles = response.data.items[0].articles.slice(0, 20);
+    const articles = response.data.items[0].articles.slice(offset, offset + limit);
     return articles.map((article) => article.article);
   } catch (error) {
     console.error("[fetchTopWikipediaPages] Error fetching top pages:", error.message);
@@ -438,47 +512,44 @@ const fetchTopWikipediaPages = async () => {
 };
 
 
+
 // Main process
-const main = async (newPagesTarget = 5) => {
+const main = async (newPagesTarget = 50) => {
   console.log("[main] Starting FAQ generation process...");
 
-  // Fetch top Wikipedia pages
-  const titles = await fetchTopWikipediaPages();
-  if (!titles.length) {
-    console.error("[main] No titles fetched. Exiting...");
-    return;
-  }
-
   let processedCount = 0;
+  let offset = 0;
 
-  for (const title of titles) {
-    if (processedCount >= newPagesTarget) {
-      console.log(`[main] Processed ${processedCount} pages. Target reached.`);
+  while (processedCount < newPagesTarget) {
+    const titles = await fetchTopWikipediaPages(offset, 50); // Fetch the next 50 titles
+    if (!titles.length) {
+      console.error("[main] No more titles to fetch. Exiting...");
       break;
     }
 
-    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
-
-    // Check if the slug already exists in the database
-    const query = `
-      SELECT slug FROM faq_files WHERE slug = $1;
-    `;
-    const values = [slug];
-
-    try {
-      const result = await client.query(query, values);
-      if (result.rows.length > 0) {
-        console.log(`[main] Skipping "${title}" as it already exists in the database.`);
-        continue; // Skip processing this title
+    for (const title of titles) {
+      if (processedCount >= newPagesTarget) {
+        console.log(`[main] Processed ${processedCount} pages. Target reached.`);
+        return;
       }
-    } catch (error) {
-      console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
-      continue; // Skip this entry to prevent breaking the script
-    }
 
-    try {
-      // Fetch metadata for the page
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      console.log(`[main] Checking existence for slug: "${slug}"`);
+
+      // Check if the slug already exists in the database
+      try {
+        const result = await client.query("SELECT slug FROM faq_files WHERE slug = $1;", [slug]);
+        if (result.rows.length > 0) {
+          console.log(`[main] Skipping "${title}" as it already exists in the database.`);
+          continue;
+        }
+      } catch (error) {
+        console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
+        continue;
+      }
+
+      console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
+
       const url = `https://en.wikipedia.org/wiki/${title}`;
       const metadata = await fetchWikipediaMetadata(title);
       const { lastUpdated, humanReadableName } = metadata;
@@ -488,44 +559,31 @@ const main = async (newPagesTarget = 5) => {
         continue;
       }
 
-      // Fetch the Wikipedia page content
-      const wikipediaText = await fetchWikipediaPage(title);
-      if (!wikipediaText) {
+      const pageData = await fetchWikipediaPage(title);
+      if (!pageData) {
         console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
         continue;
       }
 
-      // Generate structured FAQs
-      const structuredFAQs = await generateStructuredFAQs(title, wikipediaText, lastUpdated);
+      const { content, images } = pageData;
+      const structuredFAQs = await generateStructuredFAQs(title, content, lastUpdated, images);
       if (!structuredFAQs) {
         console.error(`[main] Skipping "${title}" due to FAQ generation failure.`);
         continue;
       }
 
       const { faqs, human_readable_name, last_updated } = structuredFAQs;
-
-      // Save the FAQs and metadata
       await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
-
-      // Save metadata separately for visibility
       await saveMetadata(slug, human_readable_name);
 
       console.log(`[main] Successfully processed and saved FAQs for "${title}".`);
-      processedCount++; // Increment counter
-
-    } catch (error) {
-      console.error(`[main] Error processing "${title}":`, error.message);
-      continue; // Continue with the next title
+      processedCount++;
     }
+
+    offset += 50; // Move to the next batch
   }
 
-  if (processedCount < newPagesTarget) {
-    console.log(
-      `[main] Only ${processedCount} new pages were processed. Check database or adjust fetch size.`
-    );
-  }
-
-  console.log("[main] FAQ generation process completed.");
+  console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
 };
 
-main(3);
+main(50);
