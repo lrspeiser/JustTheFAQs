@@ -5,6 +5,7 @@ import pkg from "pg";
 const { Client } = pkg;
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
+import { exec } from "child_process";
 
 
 const openai = new OpenAI({
@@ -67,7 +68,22 @@ const tools = [
 ];
 
 
-
+export default function handler(req, res) {
+  if (req.method === "POST") {
+    exec("node scripts/fetchAndGenerate.js", (error, stdout, stderr) => {
+      if (error) {
+        console.error(`[API] Error: ${error.message}`);
+        res.status(500).json({ message: "Failed to run the script." });
+        return;
+      }
+      console.log(`[API] Script Output:\n${stdout}`);
+      if (stderr) console.error(`[API] Script Error Output:\n${stderr}`);
+      res.status(200).json({ message: "Script executed successfully." });
+    });
+  } else {
+    res.status(405).json({ message: "Method not allowed." });
+  }
+}
 
 // Fetch Wikipedia metadata
 const fetchWikipediaMetadata = async (title) => {

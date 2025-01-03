@@ -1,5 +1,7 @@
 import pkg from "pg";
 const { Client } = pkg;
+import { useState } from "react";
+
 
 export async function getStaticProps() {
   const client = new Client({
@@ -36,6 +38,22 @@ export async function getStaticProps() {
 
 // Place `Home` component in `index.js` for the main page
 export default function Home({ faqs }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleGenerateClick = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/fetchAndGenerate", { method: "POST" });
+      const data = await response.json();
+      alert(data.message);
+    } catch (error) {
+      console.error("Error triggering fetchAndGenerate:", error);
+      alert("Failed to trigger the fetchAndGenerate script.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="container">
       <h1>FAQs Generated from Wikipedia</h1>
@@ -56,6 +74,9 @@ export default function Home({ faqs }) {
           </tbody>
         </table>
       )}
+      <button onClick={handleGenerateClick} disabled={loading}>
+        {loading ? "Generating..." : "Generate 50 More Articles"}
+      </button>
       <style jsx>{`
         .container {
           font-family: Arial, sans-serif;
@@ -70,6 +91,7 @@ export default function Home({ faqs }) {
         .faq-table {
           width: 100%;
           border-collapse: collapse;
+          margin-bottom: 16px;
         }
         .faq-table td {
           padding: 12px;
@@ -83,13 +105,20 @@ export default function Home({ faqs }) {
         .faq-link a:hover {
           text-decoration: underline;
         }
-        @media (max-width: 600px) {
-          .container {
-            padding: 8px;
-          }
-          .faq-table td {
-            padding: 8px;
-          }
+        button {
+          display: block;
+          margin: 16px auto;
+          padding: 12px 24px;
+          font-size: 16px;
+          color: white;
+          background-color: #007bff;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        button:disabled {
+          background-color: #aaa;
+          cursor: not-allowed;
         }
       `}</style>
     </div>
