@@ -28,7 +28,7 @@ const regenerateHTMLFiles = async () => {
 
     // Query to fetch raw FAQs where the corresponding HTML file is missing
     const query = `
-      SELECT DISTINCT url, title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link
+      SELECT DISTINCT url, title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link, image_urls
       FROM raw_faqs
     `;
 
@@ -57,6 +57,7 @@ const regenerateHTMLFiles = async () => {
         answer: row.answer,
         cross_links: row.cross_link ? row.cross_link.split(",") : [],
         media_link: row.media_link,
+        image_urls: row.image_urls ? row.image_urls.split(", ") : [],
       });
       return acc;
     }, {});
@@ -73,37 +74,49 @@ const regenerateHTMLFiles = async () => {
           <style>
             body { font-family: Arial, sans-serif; margin: 0; padding: 16px; }
             h1 { text-align: center; margin-bottom: 24px; }
-            .faq-entry { margin-bottom: 16px; }
-            .faq-subheader { font-weight: bold; }
+            .faq-entry { display: flex; align-items: flex-start; margin-bottom: 16px; border-bottom: 1px solid #ddd; padding-bottom: 16px; }
+            .faq-content { flex: 1; text-align: left; }
+            .faq-subheader { font-weight: bold; margin-bottom: 8px; }
             .faq-question { font-weight: bold; margin: 4px 0; }
             .faq-answer { margin: 4px 0; }
             .faq-links { font-size: 0.9em; margin-top: 8px; }
             .faq-links a { color: #0066cc; text-decoration: none; }
+            .faq-links a:hover { text-decoration: underline; }
+            img { max-width: 120px; max-height: 120px; margin-left: 16px; border-radius: 8px; }
           </style>
         </head>
         <body>
           <h1>FAQs: ${data.humanReadableName}</h1>
           ${data.faqs
-            .map(
-              (faq) => `
-            <div class="faq-entry">
-              <div class="faq-subheader">${faq.subheader || "General"}</div>
-              <div class="faq-question">${faq.question}</div>
-              <div class="faq-answer">${faq.answer}</div>
-              ${
-                faq.cross_links.length
-                  ? `<div class="faq-links">Related topics: ${faq.cross_links
-                      .map(
-                        (link) =>
-                          `<a href="/data/faqs/${slugify(link)}.html">${link
-                            .replace(/_/g, " ")}</a>`
-                      )
-                      .join(", ")}</div>`
-                  : ""
-              }
-            </div>
-          `
-            )
+            .map((faq) => {
+              const relatedLinks = faq.cross_links.length
+                ? `<div class="faq-links">Related topics: ${faq.cross_links
+                    .map(
+                      (link) =>
+                        `<a href="/data/faqs/${slugify(link)}.html">${link.replace(
+                          /_/g,
+                          " "
+                        )}</a>`
+                    )
+                    .join(", ")}</div>`
+                : "";
+
+              const image = faq.image_urls.length
+                ? `<img src="${faq.image_urls[0]}" alt="FAQ Image">`
+                : "";
+
+              return `
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">${faq.subheader || "General"}</div>
+                    <div class="faq-question">${faq.question}</div>
+                    <div class="faq-answer">${faq.answer}</div>
+                    ${relatedLinks}
+                  </div>
+                  ${image}
+                </div>
+              `;
+            })
             .join("\n")}
         </body>
         </html>

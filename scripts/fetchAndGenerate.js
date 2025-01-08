@@ -173,7 +173,7 @@ const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-2024-08-06",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -207,19 +207,6 @@ ${contentWithImages}`,
   }
 };
 
-
-const validateMediaLinks = (mediaLinks) => {
-  return mediaLinks.map((link) => {
-    if (link.startsWith("//")) {
-      return `https:${link}`; // Add protocol to relative URLs
-    }
-    if (link.startsWith("https://")) {
-      return link; // Valid URL
-    }
-    console.warn(`[validateMediaLinks] Invalid media link format: ${link}`);
-    return null; // Exclude invalid links
-  }).filter(Boolean); // Remove null values
-};
 
 
 const fetchWikipediaPage = async (title) => {
@@ -282,9 +269,10 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
     return;
   }
 
+  // Ensure database schema includes an 'image_urls' column
   const rawQuery = `
-    INSERT INTO raw_faqs (url, title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    INSERT INTO raw_faqs (url, title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link, image_urls)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     ON CONFLICT DO NOTHING;
   `;
 
@@ -299,11 +287,14 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
         console.log(`[saveStructuredFAQ] [FAQ ${index + 1}] Thumbnail URL:`, thumbnailURL);
 
-        return { ...faq, thumbnailURL };
+        return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
       })
     );
 
     for (const faq of faqWithThumbnails) {
+      const imageUrls = faq.mediaLinks.join(", "); // Convert array to comma-separated string
+      console.log(`[saveStructuredFAQ] Writing to database - image_urls:`, imageUrls);
+
       const values = [
         url,
         title,
@@ -314,6 +305,7 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
         faq.answer,
         faq.cross_links ? faq.cross_links.join(", ") : null,
         faq.thumbnailURL,
+        imageUrls // Store all media links
       ];
       await client.query(rawQuery, values);
       console.log(`[DB] FAQ saved: "${faq.question}" under "${faq.subheader || "No Subheader"}"`);
@@ -438,6 +430,8 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
     console.error("[saveStructuredFAQ] Error saving FAQs or metadata:", err.message);
   }
 };
+
+
 
 
 
@@ -600,6 +594,13 @@ const main = async (newPagesTarget = 50) => {
   }
 
   console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
+  process.exit(0); // Cleanly terminate the Node.js process
 };
 
-main(50);
+main(1)
+  .then(() => console.log("[main] Execution finished successfully."))
+  .catch((error) => {
+    console.error("[main] An error occurred:", error);
+    process.exit(1); // Exit with error code if something goes wrong
+  });
+
