@@ -5,6 +5,7 @@ body {
   margin: 0;
   padding: 0;
   line-height: 1.6; /* Improved readability */
+  text-align: left; /* Ensure all text starts left-aligned */
 }
 
 /* Container for main content */
@@ -43,6 +44,7 @@ body {
   color: #555;
   margin-top: 5px; /* Tighter spacing from title */
   margin-bottom: 5px; /* Tighter spacing to question */
+  text-align: left; /* Ensure subheaders are left-aligned */
 }
 
 /* Question Section */
@@ -51,6 +53,7 @@ body {
   color: #333;
   margin-bottom: 10px; /* Slight space before answer */
   font-weight: bold;
+  text-align: left; /* Ensure left alignment */
 }
 
 /* Table Layout for Answer and Image */
@@ -64,30 +67,60 @@ table {
   border-collapse: collapse;
 }
 
+/* Default styles for table cells */
 table td {
   vertical-align: top;
   padding: 10px;
+  text-align: left; /* Ensure text is left-aligned */
 }
 
-table td:first-child {
+/* Adjust column widths when an image cell is present */
+table:has(td.image) td:first-child {
   width: 70%;
 }
 
-table td:last-child {
+table:has(td.image) td:last-child {
   width: 30%;
-  text-align: center;
+  text-align: center; /* Center image in its cell */
 }
 
+/* Full width for single-column layout */
+table:not(:has(td.image)) td {
+  width: 100%;
+}
+
+/* Image Styles */
 img {
-  max-height: 150px; /* Restrict height */
+  max-height: 200px; /* Restrict height */
   max-width: 100%;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: block; /* Ensure the image is always visible */
+  margin: 0 auto; /* Center the image in its cell */
+}
+
+/* Ensure image is visible on narrow screens */
+@media (max-width: 768px) {
+  table {
+    display: block; /* Make the table stack on smaller screens */
+  }
+
+  table td {
+    display: block;
+    width: 100%;
+    text-align: left; /* Keep text left-aligned */
+  }
+
+  img {
+    max-height: 150px; /* Reduce image size for smaller screens */
+    margin: 10px auto; /* Center the image horizontally */
+  }
 }
 
 /* Related Links Section */
 .related-links {
   margin-top: 20px;
+  text-align: left; /* Ensure related links are left-aligned */
 }
 
 .related-links span {
@@ -113,7 +146,6 @@ img {
 .related-links a:hover {
   text-decoration: underline;
 }
-
 
 /* Search Box */
 .search-box {
@@ -182,16 +214,42 @@ img {
     flex-direction: column;
     gap: 5px;
   }
+}
 
-  table td:first-child {
-    width: 100%;
+@media (max-width: 768px) {
+  .question-with-image {
+    flex-direction: column; /* Stack question and image vertically */
+    align-items: center; /* Center-align for small screens */
   }
 
-  table td:last-child {
-    width: 100%;
-    margin-top: 10px;
-    text-align: center;
+  .question-with-image .image img {
+    max-height: 100px; /* Reduce image size for smaller screens */
+    max-width: 100px;
+    margin-top: 10px; /* Add spacing above the image */
   }
 }
 
+/* Question with Image Layout */
+.question-with-image {
+  display: flex;
+  align-items: flex-start; /* Align items to the top */
+  gap: 15px; /* Space between question and image */
+}
 
+.question-with-image .question {
+  flex: 1; /* Allow the question to take up remaining space */
+  text-align: left; /* Ensure left alignment */
+  margin-bottom: 0; /* Remove bottom margin */
+}
+
+.question-with-image .image {
+  flex-shrink: 0; /* Prevent the image from shrinking */
+}
+
+.question-with-image .image img {
+  max-height: 150px; /* Restrict height */
+  max-width: 150px; /* Restrict width */
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: block;
+}

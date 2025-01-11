@@ -10,19 +10,33 @@ export default async function handler(req, res) {
   const { slug } = req.query;
 
   try {
-    // Fetch the FAQ data based on the slug
-    const faqQuery = `
-      SELECT title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link
-      FROM raw_faqs
-      WHERE slug = $1;
+    // Join faq_files with raw_faqs to fetch the necessary data
+    const query = `
+      SELECT 
+        r.title, 
+        r.human_readable_name, 
+        r.last_updated, 
+        r.subheader, 
+        r.question, 
+        r.answer, 
+        r.cross_link, 
+        r.media_link
+      FROM 
+        faq_files f
+      INNER JOIN 
+        raw_faqs r 
+      ON 
+        f.human_readable_name = r.human_readable_name
+      WHERE 
+        f.slug = $1;
     `;
-    const { rows } = await client.query(faqQuery, [slug]);
+    const { rows } = await client.query(query, [slug]);
 
     if (rows.length === 0) {
-      return res.status(404).json({ error: 'FAQ not found' });
+      return res.status(404).json({ error: `FAQ not found for slug: ${slug}` });
     }
 
-    // Format the data
+    // Format the response
     const faqs = rows.map((row) => ({
       subheader: row.subheader,
       question: row.question,
@@ -31,10 +45,11 @@ export default async function handler(req, res) {
       media_links: row.media_link ? [row.media_link] : [],
     }));
 
-    const title = rows[0].title;
-    const human_readable_name = rows[0].human_readable_name;
-
-    res.status(200).json({ title, human_readable_name, faqs });
+    res.status(200).json({
+      title: rows[0].title,
+      human_readable_name: rows[0].human_readable_name,
+      faqs,
+    });
   } catch (error) {
     console.error('[API/FAQ] Error fetching FAQ data:', error.message);
     res.status(500).json({ error: 'Internal Server Error' });

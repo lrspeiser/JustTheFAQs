@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import DOMPurify from 'dompurify';
 
 const fetchFAQData = async (slug) => {
   try {
@@ -12,6 +11,61 @@ const fetchFAQData = async (slug) => {
     console.error(`[fetchFAQData] Error fetching FAQ for slug "${slug}":`, error);
     return null;
   }
+};
+
+const FAQEntry = ({ faq }) => {
+  // Format related page links to show human-readable names
+  const formatHumanReadableName = (url) => {
+    const parts = url.split('/');
+    return parts[parts.length - 1].replace(/_/g, ' ');
+  };
+
+  return (
+    <article className="faq-entry">
+      {/* Subheader */}
+      {faq.subheader && <div className="subheader">{faq.subheader}</div>}
+
+      {/* Question with Image */}
+      <div className="question-with-image">
+        <h2 className="question">Question: {faq.question}</h2>
+        {faq.media_links && faq.media_links.length > 0 && (
+          <div className="image">
+            <img
+              src={faq.media_links[0]}
+              alt="FAQ Thumbnail"
+              loading="lazy"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Answer */}
+      <div className="answer-container">
+        <div dangerouslySetInnerHTML={{ __html: faq.answer }}></div>
+      </div>
+
+      {/* Related Links */}
+      {faq.cross_links && faq.cross_links.length > 0 && (
+        <div className="related-links">
+          <span>Related Pages:</span>
+          <ul>
+            {faq.cross_links.map((link, index) => (
+              <li key={index}>
+                <a
+                  href={`/${link.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                  className="related-topic-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {formatHumanReadableName(link)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </article>
+  );
 };
 
 export default function FAQPage() {
@@ -26,38 +80,22 @@ export default function FAQPage() {
   }, [slug]);
 
   if (!faqData) {
-    return <div>Loading...</div>;
+    return <div>Loading or FAQ not found.</div>;
   }
 
-  const { title, faqs, human_readable_name } = faqData;
+  const { title, human_readable_name, faqs } = faqData;
 
   return (
     <>
       <Head>
         <title>{human_readable_name || title} - FAQ</title>
+        <link rel="stylesheet" href="/styles.css" />
       </Head>
       <main className="container">
-        <h1>{human_readable_name || title}</h1>
+        <h1 className="page-name">{human_readable_name || title}</h1>
         <div>
           {faqs.map((faq, index) => (
-            <div key={index} className="faq-entry">
-              <h2>{faq.subheader || 'General'}</h2>
-              <p><strong>Q:</strong> {faq.question}</p>
-              <p><strong>A:</strong> {faq.answer}</p>
-              {faq.media_links && faq.media_links.length > 0 && (
-                <img src={faq.media_links[0]} alt={`Related to ${faq.question}`} />
-              )}
-              {faq.cross_links && faq.cross_links.length > 0 && (
-                <p>
-                  Related Links:{' '}
-                  {faq.cross_links.map((link, idx) => (
-                    <a key={idx} href={link} target="_blank" rel="noopener noreferrer">
-                      {link}
-                    </a>
-                  ))}
-                </p>
-              )}
-            </div>
+            <FAQEntry key={index} faq={faq} />
           ))}
         </div>
       </main>

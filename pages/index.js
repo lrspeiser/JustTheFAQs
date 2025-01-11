@@ -43,28 +43,19 @@ const FAQEntry = ({ faq }) => {
       {/* Subheader */}
       {faq.subheader && <div className="subheader">{faq.subheader}</div>}
 
-      {/* Question */}
-      <h2 className="question">Question: {faq.question}</h2>
+      {/* Question with Image */}
+      <div className="question-with-image">
+        <h2 className="question">Question: {faq.question}</h2>
+        {faq.media_link && (
+          <div className="image">
+            <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
+          </div>
+        )}
+      </div>
 
-      {/* Answer and Image Table */}
+      {/* Answer */}
       <div className="answer-container">
-        <table>
-          <tbody>
-            <tr>
-              {/* Answer Cell */}
-              <td className="answer">
-                <div dangerouslySetInnerHTML={{ __html: faq.answer }}></div>
-              </td>
-
-              {/* Image Cell */}
-              {faq.media_link && (
-                <td className="image">
-                  <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
-                </td>
-              )}
-            </tr>
-          </tbody>
-        </table>
+        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer) }}></div>
       </div>
 
       {/* Related Topics */}
@@ -75,7 +66,7 @@ const FAQEntry = ({ faq }) => {
             {relatedTopics.map((topic, index) => (
               <li key={index}>
                 <a
-                  href={topic}
+                  href={`/${topic.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
                   className="related-topic-link"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -165,13 +156,13 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>FAQ Search</title>
+        <title>Just the FAQs!</title>
         <link rel="stylesheet" type="text/css" href="/styles.css" />
       </Head>
       <main className="container">
-        {/* Header with Main Page Link */}
+        {/* Header */}
         <div className="header">
-          <h1>FAQ Search</h1>
+          <h1>Just the FAQs!</h1>
         </div>
 
         {/* Search Box */}
