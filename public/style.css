@@ -1,0 +1,197 @@
+/* General Page Styles */
+body {
+  font-family: Arial, sans-serif;
+  background-color: #f8f9fa;
+  margin: 0;
+  padding: 0;
+  line-height: 1.6; /* Improved readability */
+}
+
+/* Container for main content */
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+}
+
+/* FAQ Entry Styling */
+.faq-entry {
+  margin-bottom: 40px; /* Increased space between entries for scanability */
+  padding-bottom: 20px;
+  border-bottom: 1px solid #ddd; /* Subtle separator between entries */
+}
+
+/* Page Title Styles */
+.page-name {
+  font-size: 1.8em; /* Slightly larger title */
+  font-weight: bold;
+  color: #0645AD; /* Wikipedia blue */
+  text-decoration: none;
+  margin-bottom: 5px; /* Tighter spacing to subheader */
+}
+
+.page-name:hover {
+  text-decoration: underline;
+}
+
+/* Subheader Section */
+.subheader {
+  font-size: 1.2em;
+  color: #555;
+  margin-top: 5px; /* Tighter spacing from title */
+  margin-bottom: 5px; /* Tighter spacing to question */
+}
+
+/* Question Section */
+.question {
+  font-size: 1.3em; /* Slightly larger for readability */
+  color: #333;
+  margin-bottom: 10px; /* Slight space before answer */
+  font-weight: bold;
+}
+
+/* Table Layout for Answer and Image */
+.answer-container {
+  margin-top: 10px;
+}
+
+table {
+  width: 100%;
+  border-spacing: 0;
+  border-collapse: collapse;
+}
+
+table td {
+  vertical-align: top;
+  padding: 10px;
+}
+
+table td:first-child {
+  width: 70%;
+}
+
+table td:last-child {
+  width: 30%;
+  text-align: center;
+}
+
+img {
+  max-height: 150px; /* Restrict height */
+  max-width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Related Links Section */
+.related-links {
+  margin-top: 20px;
+}
+
+.related-links span {
+  font-weight: bold;
+  margin-right: 5px;
+}
+
+.related-links ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.related-links li {
+  margin-bottom: 5px; /* Add spacing between links */
+}
+
+.related-links a {
+  color: #0645AD; /* Wikipedia link color */
+  text-decoration: none;
+}
+
+.related-links a:hover {
+  text-decoration: underline;
+}
+
+
+/* Search Box */
+.search-box {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.search-box input {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1em;
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: #0645AD;
+  box-shadow: 0 0 3px #0645AD;
+}
+
+.search-box button {
+  padding: 10px 20px;
+  background-color: #0645AD;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1em;
+}
+
+.search-box button:hover {
+  background-color: #042e71;
+}
+
+.search-box button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+/* Error Message */
+.error-message {
+  margin-top: 10px;
+  color: #d9534f;
+  font-weight: bold;
+}
+
+/* No Results Message */
+.no-results {
+  text-align: center;
+  color: #555;
+  background-color: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .container {
+    padding: 15px;
+  }
+
+  .search-box {
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  table td:first-child {
+    width: 100%;
+  }
+
+  table td:last-child {
+    width: 100%;
+    margin-top: 10px;
+    text-align: center;
+  }
+}
+
+

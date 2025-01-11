@@ -1,79 +1,199 @@
 
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>FAQs: Dunki (film)</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 0; padding: 16px; }
-            h1 { text-align: center; margin-bottom: 24px; }
-            .faq-entry { margin-bottom: 16px; }
-            .faq-subheader { font-weight: bold; }
-            .faq-question { font-weight: bold; margin: 4px 0; }
-            .faq-answer { margin: 4px 0; }
-            .faq-links { font-size: 0.9em; margin-top: 8px; }
-            .faq-links a { color: #0066cc; text-decoration: none; }
-          </style>
-        </head>
-        <body>
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>FAQs: Dunki (film)</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+          }
+          .container {
+            padding: 16px;
+            max-width: 800px;
+            margin: auto;
+          }
+          h1 {
+            text-align: center;
+            margin-bottom: 24px;
+          }
+          .faq-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 16px;
+          }
+          .faq-entry .faq-content {
+            flex: 1;
+            text-align: left;
+          }
+          .faq-entry img {
+            max-width: 120px;
+            max-height: 120px;
+            margin-left: 16px;
+            border-radius: 8px;
+          }
+          .faq-subheader {
+            font-weight: bold;
+            margin-bottom: 8px;
+          }
+          .faq-question {
+            font-weight: bold;
+            margin: 4px 0;
+          }
+          .faq-answer {
+            margin: 4px 0;
+          }
+          .faq-links {
+            margin-top: 8px;
+            font-size: 0.9em;
+          }
+          .faq-links a {
+            text-decoration: none;
+            color: #0066cc;
+          }
+          @media (max-width: 600px) {
+            .faq-entry {
+              flex-direction: column-reverse;
+              align-items: center;
+              text-align: center;
+            }
+            .faq-entry img {
+              margin: 16px 0 0 0;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
           <h1>FAQs: Dunki (film)</h1>
           
-            <div class="faq-entry">
-              <div class="faq-subheader">Production Details</div>
-              <div class="faq-question">Who directed the film 'Dunki' and who were the writers?</div>
-              <div class="faq-answer">Dunki was directed by the acclaimed Indian filmmaker Rajkumar Hirani. The screenplay was co-written by Rajkumar Hirani along with Abhijat Joshi and Kanika Dhillon. This film marks Hirani's first collaboration with Bollywood superstar Shah Rukh Khan.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/rajkumar-hirani.html">Rajkumar Hirani</a>, <a href="/data/faqs/-abhijat-joshi.html"> Abhijat Joshi</a>, <a href="/data/faqs/-kanika-dhillon.html"> Kanika Dhillon</a></div>
-            </div>
-          
-
-            <div class="faq-entry">
-              <div class="faq-subheader">Accolades</div>
-              <div class="faq-question">What awards did 'Dunki' receive?</div>
-              <div class="faq-answer">At the 69th Filmfare Awards, Dunki received nine nominations and won the award for Best Supporting Actor for Vicky Kaushal. The film was also nominated in multiple categories at the International Indian Film Academy Awards.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/69th-filmfare-awards.html">69th Filmfare Awards</a>, <a href="/data/faqs/-filmfare-award-for-best-supporting-actor.html"> Filmfare Award for Best Supporting Actor</a>, <a href="/data/faqs/-international-indian-film-academy-awards.html"> International Indian Film Academy Awards</a></div>
-            </div>
-          
-
-            <div class="faq-entry">
-              <div class="faq-subheader">Cast</div>
-              <div class="faq-question">Who are the main actors in 'Dunki'?</div>
-              <div class="faq-answer">The film stars Shah Rukh Khan as Hardayal 'Hardy' Singh Dhillon, Taapsee Pannu as Manu Randhawa, Boman Irani as Geetu Gulati, Vikram Kochhar as Buggu Lakhanpal, and Anil Grover as Balli Kakkad. Vicky Kaushal also appears in the role of Sukhwinder 'Sukhi' Singh in a special appearance.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/shah-rukh-khan.html">Shah Rukh Khan</a>, <a href="/data/faqs/-taapsee-pannu.html"> Taapsee Pannu</a>, <a href="/data/faqs/-boman-irani.html"> Boman Irani</a>, <a href="/data/faqs/-vikram-kochhar.html"> Vikram Kochhar</a>, <a href="/data/faqs/-vicky-kaushal.html"> Vicky Kaushal</a></div>
-            </div>
-          
-
-            <div class="faq-entry">
-              <div class="faq-subheader">Plot</div>
-              <div class="faq-question">Can you summarize the plot of 'Dunki'?</div>
-              <div class="faq-answer">Dunki tells the story of Manu Randhawa and her friends' quest to immigrate illegally from India to England using the 'Dunki' route. The movie follows their tumultuous journey through several countries and highlights their struggles and emotional confrontations. The narrative oscillates between past and present, showcasing the challenges and human costs of illegal immigration, ultimately delivering a powerful social message regarding the discrimination faced by the impoverished in migration processes.</div>
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Overview</div>
+                    <div class="faq-question">What is the film 'Dunki' about?</div>
+                    <div class="faq-answer">'Dunki' is a 2023 Indian Hindi-language comedy-drama film directed and co-written by Rajkumar Hirani. It revolves around the illegal immigration technique known as 'donkey flight' and follows the story of a middle-aged woman, Manu Randhawa, as she navigates her struggles to return to India. The film stars popular actors including Shah Rukh Khan, Taapsee Pannu, and Vicky Kaushal. It explores themes of migration and personal sacrifice, against a backdrop of humor and emotion.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/dunki-film-.html">Dunki (film)</a>, <a href="/data/faqs/rajkumar-hirani.html">Rajkumar Hirani</a>, <a href="/data/faqs/shah-rukh-khan.html">Shah Rukh Khan</a>, <a href="/data/faqs/illegal-immigration.html">Illegal immigration</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/en/thumb/4/4f/Dunki_poster.jpg/480px-Dunki_poster.jpg" alt="Related Image">
+                </div>
               
-            </div>
-          
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Reception</div>
-              <div class="faq-question">How was 'Dunki' received by critics and audiences?</div>
-              <div class="faq-answer">Dunki received mixed-to-positive reviews from critics and general audiences. Some praised its emotional depth and performances, particularly those of Shah Rukh Khan and Taapsee Pannu, while others critiqued the film's pacing and tonal inconsistencies. Positive reviews highlighted the film's social message on immigration, though it was noted that its execution sometimes undermined its potential impact.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/rotten-tomatoes.html">Rotten Tomatoes</a>, <a href="/data/faqs/-india-today.html"> India Today</a>, <a href="/data/faqs/-the-times-of-india.html"> The Times of India</a>, <a href="/data/faqs/-pinkvilla.html"> Pinkvilla</a>, <a href="/data/faqs/-bollywood-hungama.html"> Bollywood Hungama</a>, <a href="/data/faqs/-filmfare.html"> Filmfare</a>, <a href="/data/faqs/-hindustan-times.html"> Hindustan Times</a>, <a href="/data/faqs/-indiewire.html"> IndieWire</a>, <a href="/data/faqs/-ndtv.html"> NDTV</a>, <a href="/data/faqs/-film-companion.html"> Film Companion</a>, <a href="/data/faqs/-the-hindu.html"> The Hindu</a>, <a href="/data/faqs/-mint-lounge.html"> Mint Lounge</a>, <a href="/data/faqs/-rediff-com.html"> Rediff.com</a>, <a href="/data/faqs/-scroll-in.html"> Scroll.in</a>, <a href="/data/faqs/-the-indian-express.html"> The Indian Express</a>, <a href="/data/faqs/-gulf-news.html"> Gulf News</a>, <a href="/data/faqs/-the-national-abu-dhabi-.html"> The National (Abu Dhabi)</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Production</div>
+                    <div class="faq-question">Who directed and produced 'Dunki'?</div>
+                    <div class="faq-answer">The film 'Dunki' was directed by Rajkumar Hirani, who also co-wrote and produced it. The production was in collaboration with Jio Studios and Red Chillies Entertainment. The film's cinematography was handled by C. K. Muraleedharan, and the music was composed by Pritam and Shekhar Ravjiani. This project marked a significant collaboration as it brought together Shah Rukh Khan and Rajkumar Hirani for the first time.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/rajkumar-hirani.html">Rajkumar Hirani</a>, <a href="/data/faqs/production-companies.html">Production companies</a>, <a href="/data/faqs/shah-rukh-khan.html">Shah Rukh Khan</a></div>
+                  </div>
+                  
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Film Overview</div>
-              <div class="faq-question">What is the movie 'Dunki' about?</div>
-              <div class="faq-answer">Dunki is a 2023 Indian Hindi-language comedy drama film based on the illegal immigration technique called 'donkey flight'. The movie is co-written, co-produced, edited, and directed by Rajkumar Hirani. It stars Shah Rukh Khan, Taapsee Pannu, Vicky Kaushal, and Boman Irani. The film explores the emotional journey of individuals using the 'Dunki' route to pursue a better life in London, tackling themes of love, sacrifice, and the challenges of immigration.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/hindi.html">Hindi</a>, <a href="/data/faqs/-comedy-drama.html"> Comedy drama</a>, <a href="/data/faqs/-illegal-immigration.html"> Illegal immigration</a>, <a href="/data/faqs/-donkey-flight.html"> Donkey flight</a>, <a href="/data/faqs/-rajkumar-hirani.html"> Rajkumar Hirani</a>, <a href="/data/faqs/-shah-rukh-khan.html"> Shah Rukh Khan</a>, <a href="/data/faqs/-taapsee-pannu.html"> Taapsee Pannu</a>, <a href="/data/faqs/-vicky-kaushal.html"> Vicky Kaushal</a>, <a href="/data/faqs/-boman-irani.html"> Boman Irani</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Release</div>
+                    <div class="faq-question">When was 'Dunki' released?</div>
+                    <div class="faq-answer">'Dunki' was theatrically released worldwide on December 21, 2023. The film was highly anticipated due to the collaboration of Rajkumar Hirani and Shah Rukh Khan, making it one of the most talked-about releases of the year.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/dunki-film-.html">Dunki (film)</a>, <a href="/data/faqs/theatrical-release.html">Theatrical release</a></div>
+                  </div>
+                  
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Production Details</div>
-              <div class="faq-question">What is the budget and box office collection for 'Dunki'?</div>
-              <div class="faq-answer">The film had a budget ranging from ₹85–120 crore. It was successful at the box office, grossing approximately ₹470.6 crore worldwide, making it a commercial success.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/list-of-hindi-films-of-2023.html">List of Hindi films of 2023</a>, <a href="/data/faqs/-list-of-indian-films-of-2023.html"> List of Indian films of 2023</a></div>
-            </div>
-          
-        </body>
-        </html>
-      
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Reception</div>
+                    <div class="faq-question">How was the reception of 'Dunki'?</div>
+                    <div class="faq-answer">'Dunki' received mixed to positive reviews from both critics and audiences. It grossed approximately ₹470 crores worldwide, becoming the fifth highest-grossing Hindi film of 2023. Critics acknowledged its emotional depth and performances, especially that of Shah Rukh Khan, although some pointed out its uneven treatment of serious themes.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/box-office.html">Box office</a>, <a href="/data/faqs/reception-of-dunki.html">Reception of Dunki</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Cast</div>
+                    <div class="faq-question">Who are the main cast members of 'Dunki'?</div>
+                    <div class="faq-answer">The main cast of 'Dunki' includes: Shah Rukh Khan as Hardayal Dhillon, Taapsee Pannu as Manu Randhawa, Vicky Kaushal as Sukhwinder Singh (special appearance), and Boman Irani as Advocate Puru Patel. Other notable actors include Vikram Kochhar, Anil Grover, and Jyoti Subhash.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/cast-of-dunki.html">Cast of Dunki</a>, <a href="/data/faqs/shah-rukh-khan.html">Shah Rukh Khan</a>, <a href="/data/faqs/taapsee-pannu.html">Taapsee Pannu</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Story</div>
+                    <div class="faq-question">What is the plot of 'Dunki'?</div>
+                    <div class="faq-answer">The story of 'Dunki' follows Manu Randhawa, who, in her middle age, seeks to return to India after a tumultuous life in England. With the help of her friends, she attempts to navigate illegal immigration routes, the challenges of migration, and the sacrifices involved on their journey to reunite with loved ones.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/plot-of-dunki.html">Plot of Dunki</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Themes</div>
+                    <div class="faq-question">What themes does 'Dunki' explore?</div>
+                    <div class="faq-answer">'Dunki' explores themes of illegal immigration, personal sacrifice, resilience, and the dream of a better life. It highlights the struggles faced by individuals seeking new opportunities while also addressing the emotional toll of migration and separation from family.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/themes-of-dunki.html">Themes of Dunki</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Awards</div>
+                    <div class="faq-question">Has 'Dunki' received any awards or nominations?</div>
+                    <div class="faq-answer">At the 69th Filmfare Awards, 'Dunki' received nine nominations, including Best Actor for Shah Rukh Khan and Best Actress for Taapsee Pannu, with Vicky Kaushal winning the award for Best Supporting Actor. The film's music also garnered nominations for Best Music Director and Best Lyricist.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/dunki-film-.html">Dunki (film)</a>, <a href="/data/faqs/filmfare-awards.html">Filmfare Awards</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Marketing</div>
+                    <div class="faq-question">How was 'Dunki' marketed before its release?</div>
+                    <div class="faq-answer">'Dunki' utilized an innovative marketing strategy, including multiple teaser drops leading up to its premiere. The first teaser, titled 'Dunki Drop 1', was released on November 2, 2023, coinciding with Shah Rukh Khan's birthday, generating significant excitement.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/marketing-of-dunki.html">Marketing of Dunki</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Box Office</div>
+                    <div class="faq-question">What were the box office collections for 'Dunki'?</div>
+                    <div class="faq-answer">Upon its release, 'Dunki' achieved remarkable commercial success, grossing an estimated ₹470.6 crores globally against a production and marketing budget of around ₹120 crores, making it one of the highest-grossing Hindi films of the year.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/box-office-of-dunki.html">Box office of Dunki</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Music</div>
+                    <div class="faq-question">Who composed the music for 'Dunki'?</div>
+                    <div class="faq-answer">The soundtrack of 'Dunki' features music composed by Pritam and Shekhar Ravjiani, with Aman Pant providing the background score. The film's songs contributed to its popularity and received individual releases that were heavily promoted before the film's launch.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/dunki-soundtrack-.html">Dunki (soundtrack)</a></div>
+                  </div>
+                  
+                </div>
+              
+        </div>
+      </body>
+      </html>
+    

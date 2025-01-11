@@ -91,11 +91,53 @@ node scripts/fetchAndGenerate.js --target=50
   - Related links to other FAQ topics
   - Thumbnail images, when available
 
+## Database Schema
+
+### `faq_embeddings`
+| Column    | Data Type     | Nullable | Description                                         |
+|-----------|---------------|----------|-----------------------------------------------------|
+| id        | INTEGER       | NO       | Primary key                                        |
+| faq_id    | INTEGER       | YES      | Foreign key referencing `raw_faqs(id)`            |
+| question  | TEXT          | YES      | The FAQ question                                   |
+| embedding | VECTOR(384)   | YES      | Embedding vector for similarity search            |
+| **Indexes**   | -             |          | Primary key: `faq_embeddings_pkey`                |
+|           |               |          | Embedding index: `faq_embeddings_embedding_idx`    |
+
+### `faq_files`
+| Column             | Data Type                | Nullable | Description                           |
+|--------------------|--------------------------|----------|---------------------------------------|
+| id                 | INTEGER                 | NO       | Primary key                           |
+| slug               | TEXT                    | NO       | Unique identifier for the FAQ         |
+| file_path          | TEXT                    | NO       | Path to the HTML file                 |
+| human_readable_name| TEXT                    | YES      | User-friendly name of the FAQ         |
+| created_at         | TIMESTAMP               | NO       | Timestamp when the FAQ was created    |
+| **Indexes**        | -                       |          | Primary key: `faq_files_pkey`         |
+|                    |                         |          | Unique constraint: `faq_files_slug_key`|
+
+### `raw_faqs`
+| Column             | Data Type                | Nullable | Description                           |
+|--------------------|--------------------------|----------|---------------------------------------|
+| id                 | INTEGER                 | NO       | Primary key                           |
+| url                | TEXT                    | NO       | Original URL of the FAQ source        |
+| title              | TEXT                    | NO       | Title of the FAQ                      |
+| timestamp          | TIMESTAMP               | NO       | Timestamp when the FAQ was created    |
+| question           | TEXT                    | NO       | The FAQ question                      |
+| answer             | TEXT                    | NO       | The FAQ answer                        |
+| media_link         | TEXT                    | YES      | Link to associated media              |
+| human_readable_name| TEXT                    | YES      | User-friendly FAQ title               |
+| last_updated       | TIMESTAMP               | YES      | Timestamp of last update              |
+| subheader          | TEXT                    | YES      | Section subheader                     |
+| cross_link         | TEXT                    | YES      | Related FAQ links                     |
+| thumbnail_url      | TEXT                    | YES      | URL of the thumbnail image            |
+| image_urls         | TEXT                    | YES      | Additional image URLs                 |
+| **Indexes**        | -                       |          | Primary key: `raw_faqs_pkey`          |
+| **Referenced by**  | -                       |          | Foreign key: `faq_embeddings.faq_id` |
+
 ## Contributing
 Contributions are welcome! Please submit a pull request or open an issue on the GitHub repository.
 
 ## License
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+This project is licensed under the MIT License. See the LICENSE file for details.
 
 ## Acknowledgments
 - [Wikimedia API](https://www.mediawiki.org/wiki/API:Main_page)

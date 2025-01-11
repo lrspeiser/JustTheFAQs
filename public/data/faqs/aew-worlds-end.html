@@ -1,79 +1,133 @@
 
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>FAQs: AEW Worlds End</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 0; padding: 16px; }
-            h1 { text-align: center; margin-bottom: 24px; }
-            .faq-entry { margin-bottom: 16px; }
-            .faq-subheader { font-weight: bold; }
-            .faq-question { font-weight: bold; margin: 4px 0; }
-            .faq-answer { margin: 4px 0; }
-            .faq-links { font-size: 0.9em; margin-top: 8px; }
-            .faq-links a { color: #0066cc; text-decoration: none; }
-          </style>
-        </head>
-        <body>
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>FAQs: AEW Worlds End</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+          }
+          .container {
+            padding: 16px;
+            max-width: 800px;
+            margin: auto;
+          }
+          h1 {
+            text-align: center;
+            margin-bottom: 24px;
+          }
+          .faq-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 16px;
+          }
+          .faq-entry .faq-content {
+            flex: 1;
+            text-align: left;
+          }
+          .faq-entry img {
+            max-width: 120px;
+            max-height: 120px;
+            margin-left: 16px;
+            border-radius: 8px;
+          }
+          .faq-subheader {
+            font-weight: bold;
+            margin-bottom: 8px;
+          }
+          .faq-question {
+            font-weight: bold;
+            margin: 4px 0;
+          }
+          .faq-answer {
+            margin: 4px 0;
+          }
+          .faq-links {
+            margin-top: 8px;
+            font-size: 0.9em;
+          }
+          .faq-links a {
+            text-decoration: none;
+            color: #0066cc;
+          }
+          @media (max-width: 600px) {
+            .faq-entry {
+              flex-direction: column-reverse;
+              align-items: center;
+              text-align: center;
+            }
+            .faq-entry img {
+              margin: 16px 0 0 0;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
           <h1>FAQs: AEW Worlds End</h1>
           
-            <div class="faq-entry">
-              <div class="faq-subheader">Trademark and Announcement</div>
-              <div class="faq-question">When was the trademark for AEW Worlds End filed and announced?</div>
-              <div class="faq-answer">AEW filed the trademark for "Worlds End" on October 25, 2023, and later that same night announced the inauguration of the event during an episode of Dynamite.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/aew-dynamite.html">AEW Dynamite</a></div>
-            </div>
-          
-
-            <div class="faq-entry">
-              <div class="faq-subheader">Events</div>
-              <div class="faq-question">Can you list some key matches and winners from AEW Worlds End events?</div>
-              <div class="faq-answer">At the first AEW Worlds End event in 2023, the main event featured Maxwell Jacob Friedman (c) vs. Samoa Joe for the AEW World Championship, with Eddie Kingston winning the C2 tournament. In the 2024 event, Jon Moxley (c) faced Orange Cassidy, "Hangman" Adam Page, and Jay White for the AEW World Championship, with Kazuchika Okada winning the C2 tournament.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/worlds-end-2023-.html">Worlds End (2023)</a>, <a href="/data/faqs/-worlds-end-2024-.html"> Worlds End (2024)</a>, <a href="/data/faqs/-maxwell-jacob-friedman.html"> Maxwell Jacob Friedman</a>, <a href="/data/faqs/-samoa-joe.html"> Samoa Joe</a>, <a href="/data/faqs/-jon-moxley.html"> Jon Moxley</a>, <a href="/data/faqs/-orange-cassidy.html"> Orange Cassidy</a>, <a href="/data/faqs/-adam-page.html"> Adam Page</a>, <a href="/data/faqs/-jay-white.html"> Jay White</a>, <a href="/data/faqs/-aew-world-championship.html"> AEW World Championship</a>, <a href="/data/faqs/-eddie-kingston.html"> Eddie Kingston</a>, <a href="/data/faqs/-kazuchika-okada.html"> Kazuchika Okada</a></div>
-            </div>
-          
-
-            <div class="faq-entry">
-              <div class="faq-subheader">General Information</div>
-              <div class="faq-question">What is AEW Worlds End?</div>
-              <div class="faq-answer">AEW Worlds End is a professional wrestling pay-per-view (PPV) event produced by All Elite Wrestling (AEW). Established in 2023, it is held annually in late December around New Year's Eve. The event also hosts the finals of the annual Continental Classic (C2) tournament.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/professional-wrestling.html">Professional wrestling</a>, <a href="/data/faqs/-pay-per-view.html"> Pay-per-view</a>, <a href="/data/faqs/-list-of-all-elite-wrestling-pay-per-view-events.html"> List of All Elite Wrestling pay-per-view events</a></div>
-            </div>
-          
-
-            <div class="faq-entry">
-              <div class="faq-subheader">History</div>
-              <div class="faq-question">How did AEW Worlds End begin?</div>
-              <div class="faq-answer">AEW Worlds End began after All Elite Wrestling (AEW) filed a trademark for the name "Worlds End" on October 25, 2023. The first event was held on December 30, 2023, at the Nassau Veterans Memorial Coliseum in Uniondale, New York. It marked AEW's first PPV in New York State and coincided with the finals of the inaugural Continental Classic tournament.</div>
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Overview</div>
+                    <div class="faq-question">What is AEW Worlds End?</div>
+                    <div class="faq-answer">AEW Worlds End is a professional wrestling pay-per-view (PPV) event produced by All Elite Wrestling (AEW). Established in 2023, the event is held annually in late December, specifically on the weekend of or before New Year's Eve. It also hosts the finals of the Continental Classic (C2) tournament, with the inaugural tournament coinciding with the first version of Worlds End.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-all-elite-wrestling.html">All Elite Wrestling</a>, <a href="/data/faqs/-wiki-pay-per-view.html">Pay-per-view</a>, <a href="/data/faqs/-wiki-continental-classic.html">Continental Classic</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/en/thumb/d/d9/AEW_Worlds_End_logo.png/480px-AEW_Worlds_End_logo.png" alt="Related Image">
+                </div>
               
-            </div>
-          
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Annual Events</div>
-              <div class="faq-question">Is AEW Worlds End a recurring event?</div>
-              <div class="faq-answer">Yes, AEW Worlds End is an annual pay-per-view event held in late December, serving as the final of the Continental Classic tournament.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/continental-classic.html">Continental Classic</a>, <a href="/data/faqs/-pay-per-view.html"> Pay-per-view</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Event History</div>
+                    <div class="faq-question">What significant events have happened during AEW Worlds End?</div>
+                    <div class="faq-answer">The inaugural AEW Worlds End event took place on December 30, 2023, at the Nassau Veterans Memorial Coliseum in Uniondale, New York. This marked AEW's first PPV held in New York state. The main event featured Maxwell Jacob Friedman (MJF) defending the AEW World Championship against Samoa Joe. Additionally, Eddie Kingston won the Continental Classic tournament at this event. The next installment of Worlds End is set for December 28, 2024, at the Addition Financial Arena near Orlando, Florida, establishing this PPV as an annual event.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-worlds-end-2023-.html">Worlds End (2023)</a>, <a href="/data/faqs/-wiki-nassau-veterans-memorial-coliseum.html">Nassau Veterans Memorial Coliseum</a>, <a href="/data/faqs/-wiki-eddie-kingston.html">Eddie Kingston</a>, <a href="/data/faqs/-wiki-worlds-end-2024-.html">Worlds End (2024)</a></div>
+                  </div>
+                  
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">See also</div>
-              <div class="faq-question">Where can I find a list of all AEW pay-per-view events?</div>
-              <div class="faq-answer">You can find a comprehensive list of all AEW pay-per-view events on the Wikipedia page 'List of All Elite Wrestling pay-per-view events'.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/list-of-all-elite-wrestling-pay-per-view-events.html">List of All Elite Wrestling pay-per-view events</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Continental Classic Tournament</div>
+                    <div class="faq-question">What is the Continental Classic tournament and its significance at AEW Worlds End?</div>
+                    <div class="faq-answer">The Continental Classic is an annual tournament that occurs after AEW's Full Gear event in mid-November, culminating at AEW Worlds End. It features a round-robin format with Blue and Gold Leagues composed of six wrestlers each. The winner receives the AEW Continental Championship, and the current champion automatically qualifies for the tournament. Matches follow specific 'Continental Rules,' ensuring fair competition without outside interference, contributing to the tournament's prestige and excitement during the Worlds End PPV.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-continental-classic.html">Continental Classic</a>, <a href="/data/faqs/-wiki-aew-full-gear.html">AEW Full Gear</a>, <a href="/data/faqs/-wiki-aew-continental-championship.html">AEW Continental Championship</a></div>
+                  </div>
+                  
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Continental Classic</div>
-              <div class="faq-question">What is the Continental Classic tournament?</div>
-              <div class="faq-answer">The Continental Classic (C2) is an annual wrestling tournament hosted by AEW. It starts after the Full Gear PPV event in mid-November and concludes at Worlds End in December. The tournament follows a round-robin format with two leagues: Blue and Gold, and the prize for the winner is the AEW Continental Championship. Matches have a 20-minute time limit, with no ringside interference allowed.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/aew-full-gear.html">AEW Full Gear</a>, <a href="/data/faqs/-round-robin-tournament.html"> Round-robin tournament</a>, <a href="/data/faqs/-aew-continental-championship.html"> AEW Continental Championship</a></div>
-            </div>
-          
-        </body>
-        </html>
-      
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Future Events</div>
+                    <div class="faq-question">What are the upcoming AEW Worlds End events and their locations?</div>
+                    <div class="faq-answer">The next AEW Worlds End event is scheduled for December 28, 2024, at the Addition Financial Arena, located near Orlando, Florida. This establishes Worlds End as a staple in AEW's annual PPV lineup, continuing its tradition of hosting the Continental Classic finals, ensuring fans can anticipate exciting wrestling matches during the holiday season.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-worlds-end-2024-.html">Worlds End (2024)</a>, <a href="/data/faqs/-wiki-addition-financial-arena.html">Addition Financial Arena</a></div>
+                  </div>
+                  
+                </div>
+              
+
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">AEW Worlds End Logo</div>
+                    <div class="faq-question">What does the AEW Worlds End logo look like?</div>
+                    <div class="faq-answer">The logo for AEW Worlds End features a stylized design that represents the event's branding. You can view the logo image above, which encapsulates the event's identity in the realm of professional wrestling.</div>
+                    <div class="faq-links">Related topics: No related links.</div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/en/thumb/d/d9/AEW_Worlds_End_logo.png/480px-AEW_Worlds_End_logo.png" alt="Related Image">
+                </div>
+              
+        </div>
+      </body>
+      </html>
+    

@@ -1,3 +1,5 @@
+// scripts/fetchAndGenerate.js
+
 import axios from "axios";
 import fs from "fs-extra";
 import path from "path";
@@ -6,13 +8,25 @@ const { Client } = pkg;
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { exec } from "child_process";
+import { pipeline } from '@xenova/transformers';
 
+// Add this after your imports
+let embedder = null;
+async function initEmbedder() {
+  if (!embedder) {
+    embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+  }
+  return embedder;
+}
 
 const openai = new OpenAI({
   apiKey: process.env["OPENAI_API_KEY"],
 });
 
-
+// Add this formatting helper function at the top level
+const formatEmbeddingForPg = (embedding) => {
+  return `[${embedding.join(',')}]`;
+};
 
 // Database connection setup
 const client = new Client({
@@ -68,22 +82,21 @@ const tools = [
 ];
 
 
-export default function handler(req, res) {
-  if (req.method === "POST") {
-    exec("node scripts/fetchAndGenerate.js", (error, stdout, stderr) => {
-      if (error) {
-        console.error(`[API] Error: ${error.message}`);
-        res.status(500).json({ message: "Failed to run the script." });
-        return;
-      }
-      console.log(`[API] Script Output:\n${stdout}`);
-      if (stderr) console.error(`[API] Script Error Output:\n${stderr}`);
-      res.status(200).json({ message: "Script executed successfully." });
+
+async function generateEmbedding(text) {
+  try {
+    const response = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: text,
     });
-  } else {
-    res.status(405).json({ message: "Method not allowed." });
+    return response.data[0].embedding;
+  } catch (error) {
+    console.error('[generateEmbedding] Error:', error.message);
+    throw error;
   }
 }
+
+
 
 // Fetch Wikipedia metadata
 const fetchWikipediaMetadata = async (title) => {
@@ -262,7 +275,6 @@ const fetchWikipediaPage = async (title) => {
 
 
 
-// Save structured FAQs to the database and filesystem
 const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
   if (!faqs || !faqs.length) {
     console.error("[saveStructuredFAQ] No FAQs to save.");
@@ -273,44 +285,128 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
   const rawQuery = `
     INSERT INTO raw_faqs (url, title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link, image_urls)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    ON CONFLICT DO NOTHING;
+    ON CONFLICT DO NOTHING
+    RETURNING id;
   `;
 
   try {
-    console.log("[saveStructuredFAQ] Raw media links before thumbnail generation:");
+    console.log("[saveStructuredFAQ] Starting process for:", {
+      title,
+      faqCount: faqs.length,
+      firstQuestion: faqs[0]?.question
+    });
+
+    console.log("[saveStructuredFAQ] Processing thumbnails...");
     const faqWithThumbnails = await Promise.all(
       faqs.map(async (faq, index) => {
-        const mediaLink = faq.media_links?.[0] || null;
-        const thumbnailURL = mediaLink
-          ? await fetchThumbnailURL(mediaLink, 480)
-          : null;
+        try {
+          console.log(`[saveStructuredFAQ] Processing FAQ ${index + 1}:`, {
+            question: faq.question,
+            mediaLinksCount: faq.media_links?.length || 0
+          });
 
-        console.log(`[saveStructuredFAQ] [FAQ ${index + 1}] Thumbnail URL:`, thumbnailURL);
+          const mediaLink = faq.media_links?.[0] || null;
+          console.log(`[saveStructuredFAQ] Media link for FAQ ${index + 1}:`, mediaLink);
 
-        return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
+          let thumbnailURL = null;
+          if (mediaLink) {
+            try {
+              thumbnailURL = await fetchThumbnailURL(mediaLink, 480);
+              console.log(`[saveStructuredFAQ] Generated thumbnail for FAQ ${index + 1}:`, thumbnailURL);
+            } catch (thumbnailError) {
+              console.error(`[saveStructuredFAQ] Thumbnail generation error for FAQ ${index + 1}:`, thumbnailError);
+            }
+          }
+
+          return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
+        } catch (faqError) {
+          console.error(`[saveStructuredFAQ] Error processing FAQ ${index + 1}:`, faqError);
+          return { ...faq, thumbnailURL: null, mediaLinks: [] };
+        }
       })
     );
 
-    for (const faq of faqWithThumbnails) {
-      const imageUrls = faq.mediaLinks.join(", "); // Convert array to comma-separated string
-      console.log(`[saveStructuredFAQ] Writing to database - image_urls:`, imageUrls);
+    console.log("[saveStructuredFAQ] Starting database insertions...");
 
-      const values = [
-        url,
-        title,
-        humanReadableName,
-        lastUpdated,
-        faq.subheader || null,
-        faq.question,
-        faq.answer,
-        faq.cross_links ? faq.cross_links.join(", ") : null,
-        faq.thumbnailURL,
-        imageUrls // Store all media links
-      ];
-      await client.query(rawQuery, values);
-      console.log(`[DB] FAQ saved: "${faq.question}" under "${faq.subheader || "No Subheader"}"`);
+    // Process each FAQ with its own transaction
+    for (const faq of faqWithThumbnails) {
+      try {
+        await client.query('BEGIN');
+
+        console.log(`[saveStructuredFAQ] Processing FAQ:`, {
+          question: faq.question?.substring(0, 50) + "...",
+          subheader: faq.subheader || "No Subheader"
+        });
+
+        const imageUrls = Array.isArray(faq.mediaLinks) ? faq.mediaLinks.join(", ") : "";
+        console.log(`[saveStructuredFAQ] Prepared image URLs:`, imageUrls);
+
+        const values = [
+          url,
+          title,
+          humanReadableName,
+          lastUpdated,
+          faq.subheader || null,
+          faq.question,
+          faq.answer,
+          faq.cross_links ? faq.cross_links.join(", ") : null,
+          faq.thumbnailURL,
+          imageUrls
+        ];
+
+        // Save FAQ and get its ID
+        const faqResult = await client.query(rawQuery, values);
+        const faqId = faqResult.rows[0]?.id;
+
+        if (!faqId) {
+          console.warn(`[saveStructuredFAQ] No ID returned for FAQ:`, {
+            question: faq.question?.substring(0, 50) + "..."
+          });
+          await client.query('ROLLBACK');
+          continue;
+        }
+
+        console.log(`[DB] FAQ saved with ID ${faqId}: "${faq.question?.substring(0, 50)}..."`);
+
+        // Generate and save embedding
+        try {
+          console.log(`[saveStructuredFAQ] Generating embedding for FAQ ID ${faqId}`);
+
+          // Initialize embedder if needed
+          const localEmbedder = await initEmbedder();
+
+          // Generate embedding
+          const output = await localEmbedder(faq.question, { pooling: 'mean', normalize: true });
+          const embedding = Array.from(output.data);
+
+          // Format for Postgres
+          const formattedEmbedding = `[${embedding.join(',')}]`;
+
+          await client.query(
+            `INSERT INTO faq_embeddings (faq_id, question, embedding) 
+             VALUES ($1, $2, $3)`,
+            [faqId, faq.question, formattedEmbedding]
+          );
+          console.log(`[DB] Embedding saved for FAQ ID ${faqId}`);
+        } catch (embeddingError) {
+          console.error(`[DB] Error saving embedding for FAQ ID ${faqId}:`, embeddingError);
+          await client.query('ROLLBACK');
+          continue;
+        }
+
+        await client.query('COMMIT');
+        console.log(`[DB] Successfully saved FAQ and embedding for ID ${faqId}`);
+
+      } catch (faqError) {
+        await client.query('ROLLBACK');
+        console.error(`[saveStructuredFAQ] Error saving FAQ:`, {
+          error: faqError.message,
+          question: faq.question?.substring(0, 50) + "..."
+        });
+      }
     }
 
+    console.log("[saveStructuredFAQ] Generating HTML content...");
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const htmlContent = `
       <!DOCTYPE html>
@@ -388,15 +484,21 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
           <h1>FAQs: ${humanReadableName}</h1>
           ${faqWithThumbnails
             .map((faq) => {
-              const relatedLinks = faq.cross_links
+              const relatedLinks = faq.cross_links && Array.isArray(faq.cross_links) && faq.cross_links.length > 0
                 ? faq.cross_links
-                    .map(
-                      (link) =>
-                        `<a href="/data/faqs/${link.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.html">${link
-                          .split("/")
-                          .pop()
-                          .replace(/_/g, " ")}</a>`
-                    )
+                    .filter(link => link) // Filter out null/undefined links
+                    .map(link => {
+                      try {
+                        const linkStr = link.toString();
+                        const slug = linkStr.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+                        const displayText = linkStr.split("/").pop().replace(/_/g, " ");
+                        return `<a href="/data/faqs/${slug}.html">${displayText}</a>`;
+                      } catch (error) {
+                        console.error(`[HTML Generation] Error processing link: ${link}`, error);
+                        return "";
+                      }
+                    })
+                    .filter(link => link) // Filter out any empty strings from failed conversions
                     .join(", ")
                 : "No related links.";
 
@@ -404,8 +506,8 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
                 <div class="faq-entry">
                   <div class="faq-content">
                     <div class="faq-subheader">${faq.subheader || "General"}</div>
-                    <div class="faq-question">${faq.question}</div>
-                    <div class="faq-answer">${faq.answer}</div>
+                    <div class="faq-question">${faq.question || ""}</div>
+                    <div class="faq-answer">${faq.answer || ""}</div>
                     <div class="faq-links">Related topics: ${relatedLinks}</div>
                   </div>
                   ${
@@ -422,15 +524,22 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
       </html>
     `;
 
+    console.log("[saveStructuredFAQ] Writing HTML file...");
     const filePath = path.join(FAQ_DIR, `${slug}.html`);
     await fs.ensureDir(FAQ_DIR);
     await fs.writeFile(filePath, htmlContent, "utf8");
     console.log(`[saveStructuredFAQ] FAQ file created: ${filePath}`);
+
   } catch (err) {
-    console.error("[saveStructuredFAQ] Error saving FAQs or metadata:", err.message);
+    console.error("[saveStructuredFAQ] Error with full details:", {
+      message: err.message,
+      stack: err.stack,
+      title: title,
+      faqCount: faqs?.length || 0
+    });
+    throw err; // Re-throw to ensure calling function knows about the failure
   }
 };
-
 
 
 
@@ -597,7 +706,7 @@ const main = async (newPagesTarget = 50) => {
   process.exit(0); // Cleanly terminate the Node.js process
 };
 
-main(1)
+main(10)
   .then(() => console.log("[main] Execution finished successfully."))
   .catch((error) => {
     console.error("[main] An error occurred:", error);

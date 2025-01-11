@@ -1,117 +1,216 @@
-import pkg from "pg";
-const { Client } = pkg;
-import { useState } from "react";
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import Head from 'next/head';
+import DOMPurify from 'dompurify';
 
-export async function getStaticProps() {
-  const client = new Client({
-    connectionString: process.env.DATABASE_URL, // Replit provides this automatically
-  });
+const FAQEntry = ({ faq }) => {
+  const getCategory = () => {
+    if (!faq.human_readable_name) return 'General';
+    return faq.human_readable_name.split('/')[0];
+  };
 
-  try {
-    await client.connect();
-    console.log("[DB] Connected to the database.");
-
-    // Fetch `slug`, `file_path`, and `human_readable_name`
-    const query = `
-      SELECT slug, file_path, human_readable_name 
-      FROM faq_files 
-      ORDER BY id DESC;
-    `;
-    const result = await client.query(query);
-    console.log("[DB] Fetched rows:", result.rows);
-
-    const faqs = result.rows.map((row) => ({
-      slug: row.slug,
-      name: row.human_readable_name || row.slug.replace(/-/g, " "), // Fallback to slug if name is missing
-    }));
-
-    return { props: { faqs } };
-  } catch (error) {
-    console.error("[DB] Error fetching data:", error.message);
-    return { props: { faqs: [] } };
-  } finally {
-    await client.end();
-  }
-}
-
-// Main component for the homepage
-export default function Home({ faqs }) {
-  const [loading, setLoading] = useState(false);
-
-  const handleGenerateClick = async () => {
-    setLoading(true);
+  const getRelatedTopics = () => {
+    if (!faq.cross_links) return [];
     try {
-      const response = await fetch("/api/fetchAndGenerate", { method: "POST" });
-      const data = await response.json();
-      alert(data.message);
-    } catch (error) {
-      console.error("Error triggering fetchAndGenerate:", error);
-      alert("Failed to trigger the fetchAndGenerate script.");
-    } finally {
-      setLoading(false);
+      if (typeof faq.cross_links === 'string') {
+        return faq.cross_links.split(',').map((link) => link.trim());
+      }
+      return faq.cross_links;
+    } catch {
+      return [];
     }
   };
 
+  const category = getCategory();
+  const relatedTopics = getRelatedTopics();
+  const categorySlug = category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+  // Format the human-readable name for each related topic
+  const formatHumanReadableName = (url) => {
+    const parts = url.split('/');
+    return parts[parts.length - 1].replace(/_/g, ' ');
+  };
+
   return (
-    <div className="container">
-      <h1>FAQs Generated from Wikipedia</h1>
-      {faqs.length === 0 ? (
-        <p>No FAQs available. Please try again later.</p>
-      ) : (
-        <ul className="faq-list">
-          {faqs.map((faq) => (
-            <li key={faq.slug}>
-              <a href={`/faqs/${faq.slug}`}>{faq.name}</a>
-            </li>
-          ))}
-        </ul>
+    <article className="faq-entry">
+      {/* Page Name */}
+      <header className="entry-header">
+        <a href={`/${categorySlug}`} className="page-name">
+          {category}
+        </a>
+      </header>
+
+      {/* Subheader */}
+      {faq.subheader && <div className="subheader">{faq.subheader}</div>}
+
+      {/* Question */}
+      <h2 className="question">Question: {faq.question}</h2>
+
+      {/* Answer and Image Table */}
+      <div className="answer-container">
+        <table>
+          <tbody>
+            <tr>
+              {/* Answer Cell */}
+              <td className="answer">
+                <div dangerouslySetInnerHTML={{ __html: faq.answer }}></div>
+              </td>
+
+              {/* Image Cell */}
+              {faq.media_link && (
+                <td className="image">
+                  <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
+                </td>
+              )}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Related Topics */}
+      {(relatedTopics.length > 0 || category) && (
+        <div className="related-links">
+          <span>Related Pages:</span>
+          <ul>
+            {relatedTopics.map((topic, index) => (
+              <li key={index}>
+                <a
+                  href={topic}
+                  className="related-topic-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {formatHumanReadableName(topic)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-      <button onClick={handleGenerateClick} disabled={loading}>
-        {loading ? "Generating..." : "Generate 50 More Articles"}
-      </button>
-      <style jsx>{`
-        .container {
-          font-family: Arial, sans-serif;
-          margin: 0 auto;
-          padding: 16px;
-          max-width: 800px;
-        }
-        h1 {
-          text-align: center;
-          margin-bottom: 24px;
-        }
-        .faq-list {
-          list-style-type: none;
-          padding: 0;
-          margin: 0;
-        }
-        .faq-list li {
-          margin: 8px 0;
-        }
-        .faq-list a {
-          text-decoration: none;
-          color: #007bff;
-          font-weight: bold;
-        }
-        .faq-list a:hover {
-          text-decoration: underline;
-        }
-        button {
-          display: block;
-          margin: 16px auto;
-          padding: 12px 24px;
-          font-size: 16px;
-          color: white;
-          background-color: #007bff;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-        button:disabled {
-          background-color: #aaa;
-          cursor: not-allowed;
-        }
-      `}</style>
-    </div>
+    </article>
+  );
+};
+
+const TopicLink = ({ name }) => {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return (
+    <a href={`/${slug}`} className="related-topic-link">
+      {name}
+    </a>
+  );
+};
+
+export default function Home() {
+  const router = useRouter();
+  const [faqs, setFaqs] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const query = router.query.q;
+    if (query) {
+      setSearchQuery(query);
+      performSearch(query);
+    }
+  }, [router.query.q]);
+
+  const performSearch = async (query) => {
+    setSearching(true);
+    try {
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Search failed. Please try again.');
+      }
+
+      const data = await response.json();
+      console.log('[Search Results] Data received:', data);
+      setFaqs(data);
+
+      router.push(
+        {
+          pathname: router.pathname,
+          query: { q: query },
+        },
+        undefined,
+        { shallow: true }
+      );
+    } catch (error) {
+      console.error('[Search Error]:', error.message);
+      setError(error.message);
+      setFaqs([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSearch = () => {
+    if (searchQuery.trim().length < 3) {
+      setError('Please enter at least 3 characters to search');
+      return;
+    }
+    setError(null);
+    performSearch(searchQuery);
+  };
+
+  useEffect(() => {
+    console.log('[FAQ Component] Current FAQs:', faqs);
+  }, [faqs]);
+
+  return (
+    <>
+      <Head>
+        <title>FAQ Search</title>
+        <link rel="stylesheet" type="text/css" href="/styles.css" />
+      </Head>
+      <main className="container">
+        {/* Header with Main Page Link */}
+        <div className="header">
+          <h1>FAQ Search</h1>
+        </div>
+
+        {/* Search Box */}
+        <div className="search-box">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="Search FAQs..."
+          />
+          <button onClick={handleSearch} disabled={searching}>
+            {searching ? 'Searching...' : 'Search'}
+          </button>
+        </div>
+
+        {/* Results */}
+        {faqs.length > 0 ? (
+          <div className="results">
+            <h2>Search Results ({faqs.length})</h2>
+            {faqs.map((faq) => (
+              <FAQEntry key={faq.id} faq={faq} />
+            ))}
+          </div>
+        ) : (
+          !searching &&
+          searchQuery && (
+            <div className="no-results">
+              No results found. Try a different search term.
+            </div>
+          )
+        )}
+
+        {error && (
+          <div className="error-message">
+            <p>{error}</p>
+          </div>
+        )}
+      </main>
+    </>
   );
 }

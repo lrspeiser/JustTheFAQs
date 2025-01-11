@@ -1,87 +1,166 @@
 
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>FAQs: Wikipedia Main Page</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 0; padding: 16px; }
-            h1 { text-align: center; margin-bottom: 24px; }
-            .faq-entry { margin-bottom: 16px; }
-            .faq-subheader { font-weight: bold; }
-            .faq-question { font-weight: bold; margin: 4px 0; }
-            .faq-answer { margin: 4px 0; }
-            .faq-links { font-size: 0.9em; margin-top: 8px; }
-            .faq-links a { color: #0066cc; text-decoration: none; }
-          </style>
-        </head>
-        <body>
-          <h1>FAQs: Wikipedia Main Page</h1>
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>FAQs: Main Page</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+          }
+          .container {
+            padding: 16px;
+            max-width: 800px;
+            margin: auto;
+          }
+          h1 {
+            text-align: center;
+            margin-bottom: 24px;
+          }
+          .faq-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 16px;
+          }
+          .faq-entry .faq-content {
+            flex: 1;
+            text-align: left;
+          }
+          .faq-entry img {
+            max-width: 120px;
+            max-height: 120px;
+            margin-left: 16px;
+            border-radius: 8px;
+          }
+          .faq-subheader {
+            font-weight: bold;
+            margin-bottom: 8px;
+          }
+          .faq-question {
+            font-weight: bold;
+            margin: 4px 0;
+          }
+          .faq-answer {
+            margin: 4px 0;
+          }
+          .faq-links {
+            margin-top: 8px;
+            font-size: 0.9em;
+          }
+          .faq-links a {
+            text-decoration: none;
+            color: #0066cc;
+          }
+          @media (max-width: 600px) {
+            .faq-entry {
+              flex-direction: column-reverse;
+              align-items: center;
+              text-align: center;
+            }
+            .faq-entry img {
+              margin: 16px 0 0 0;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>FAQs: Main Page</h1>
           
-            <div class="faq-entry">
-              <div class="faq-subheader">In The News</div>
-              <div class="faq-question">What significant incidents were reported recently?</div>
-              <div class="faq-answer">Recent news includes the 2025 New Orleans truck attack that killed at least 14 people, the death of former U.S. President Jimmy Carter at age 100, the Jeju Air Flight 2216 crash killing 179 people, and the impeachment of South Korea's acting president Han Duck-soo.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/2025-new-orleans-truck-attack.html">2025 New Orleans truck attack</a>, <a href="/data/faqs/-jimmy-carter.html"> Jimmy Carter</a>, <a href="/data/faqs/-jeju-air-flight-2216.html"> Jeju Air Flight 2216</a>, <a href="/data/faqs/-han-duck-soo.html"> Han Duck-soo</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Welcome to Wikipedia</div>
+                    <div class="faq-question">What is Wikipedia?</div>
+                    <div class="faq-answer">Wikipedia is the free encyclopedia that anyone can edit. It allows users to contribute and create articles, aiming to provide reliable information on a vast range of topics. Currently, Wikipedia has over 6 million articles in English and around 116,430 active editors globally.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-wikipedia.html">Wikipedia</a>, <a href="/data/faqs/-wiki-free-content.html">Free content</a>, <a href="/data/faqs/-wiki-help-introduction-to-wikipedia.html">Help:Introduction to Wikipedia</a>, <a href="/data/faqs/-wiki-special-statistics.html">Special:Statistics</a></div>
+                  </div>
+                  
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">From Today's Featured List</div>
-              <div class="faq-question">What is the Hugo Award for Best Professional Editor?</div>
-              <div class="faq-answer">The Hugo Award for Best Professional Editor is granted annually for editorial work in science fiction or fantasy. Established in 1973, it was split into Best Editor (Short Form) and Best Editor (Long Form) in 2007. Gardner Dozois has won it a record 15 times.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/hugo-award-for-best-professional-editor.html">Hugo Award for Best Professional Editor</a>, <a href="/data/faqs/-gardner-dozois.html"> Gardner Dozois</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Today's Featured Article</div>
+                    <div class="faq-question">Who is Elvis Presley?</div>
+                    <div class="faq-answer">Elvis Presley (January 8, 1935 – August 16, 1977) was an American singer and one of the most important figures of 20th-century popular culture. Known as the 'King of Rock and Roll', he began his career in 1954 and is recognized as the leading figure of rock and roll music. He had a significant impact on music and pop culture, earning numerous accolades, including three Grammy Awards and a Grammy Lifetime Achievement Award. His return to live performances in 1968 marked a resurgence in his career, leading to a successful residency in Las Vegas and a global concert broadcast in 1973, seen by approximately 1.5 billion viewers. Presley died in 1977 due to health complications exacerbated by prescription drug abuse.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-elvis-presley.html">Elvis Presley</a>, <a href="/data/faqs/-wiki-rock-and-roll.html">Rock and roll</a>, <a href="/data/faqs/-wiki-las-vegas.html">Las Vegas</a>, <a href="/data/faqs/-wiki-grammy-awards.html">Grammy Awards</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/9/99/Elvis_Presley_promoting_Jailhouse_Rock.jpg/480px-Elvis_Presley_promoting_Jailhouse_Rock.jpg" alt="Related Image">
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">From Today's Featured Article</div>
-              <div class="faq-question">What are the Albona-class minelayers?</div>
-              <div class="faq-answer">The Albona-class minelayers were mine-warfare ships used by the Italian Regia Marina and the Royal Yugoslav Navy. Originally laid down for the Austro-Hungarian Navy, these ships were completed post-World War I and used in both Italian and Yugoslav naval services.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/albona-class-minelayer.html">Albona-class minelayer</a>, <a href="/data/faqs/-minelayer.html"> Minelayer</a>, <a href="/data/faqs/-regia-marina.html"> Regia Marina</a>, <a href="/data/faqs/-royal-yugoslav-navy.html"> Royal Yugoslav Navy</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Did You Know...</div>
+                    <div class="faq-question">What interesting fact is associated with the film 'Two Stars in the Milky Way'?</div>
+                    <div class="faq-answer">The soundtrack of 'Two Stars in the Milky Way', one of the few surviving early Chinese films, has been lost. This highlights the challenges in preserving early cinematic works and their associated materials.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-two-stars-in-the-milky-way.html">Two Stars in the Milky Way</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Two_Stars_in_the_the_Milky_Way%2C_promotional_still_%281931%29.jpg/480px-Two_Stars_in_the_the_Milky_Way%2C_promotional_still_%281931%29.jpg" alt="Related Image">
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">On This Day</div>
-              <div class="faq-question">What historical events happened on January 3rd?</div>
-              <div class="faq-answer">Notable events on January 3rd include the Decian persecution initiated by Decius in 250, the 1777 Battle of Princeton during the American Revolutionary War, Alaska becoming the 49th U.S. state in 1959, and the surrender of Manuel Noriega in 1990.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/decian-persecution.html">Decian persecution</a>, <a href="/data/faqs/-battle-of-princeton.html"> Battle of Princeton</a>, <a href="/data/faqs/-alaska.html"> Alaska</a>, <a href="/data/faqs/-manuel-noriega.html"> Manuel Noriega</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">In the News</div>
+                    <div class="faq-question">What recent significant events have occurred?</div>
+                    <div class="faq-answer">Recently, a 7.1-magnitude earthquake struck Tingri County in the Tibet Autonomous Region of China, causing over 126 fatalities. In other news, Canadian Prime Minister Justin Trudeau announced his intention to resign.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-2025-tibet-earthquake.html">2025 Tibet earthquake</a>, <a href="/data/faqs/-wiki-justin-trudeau.html">Justin Trudeau</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/2025_Tibet_earthquake_aftermath.png/480px-2025_Tibet_earthquake_aftermath.png" alt="Related Image">
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Today's Featured Picture</div>
-              <div class="faq-question">What is unique about the KiMo Theater in Albuquerque?</div>
-              <div class="faq-answer">The KiMo Theater in Albuquerque is noted for its Pueblo Deco architecture, a distinctive blend of Pueblo Revival and Art Deco styles. Allegedly haunted, the theater's name, suggested by Pablo Abeita, means 'mountain lion.'</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/kimo-theater.html">KiMo Theater</a>, <a href="/data/faqs/-albuquerque.html"> Albuquerque</a>, <a href="/data/faqs/-new-mexico.html"> New Mexico</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">On This Day</div>
+                    <div class="faq-question">What notable historical events occurred on January 8?</div>
+                    <div class="faq-answer">Notable events on January 8 include the execution of Thomas Aikenhead in 1697 for blasphemy, which made him the last person executed for this crime in Great Britain, and the dedication of the Blackstone Library in Chicago in 1904.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-january-8.html">January 8</a>, <a href="/data/faqs/-wiki-thomas-aikenhead.html">Thomas Aikenhead</a>, <a href="/data/faqs/-wiki-blackstone-library.html">Blackstone Library</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/20061028_Blackstone_Library_Front.JPG/480px-20061028_Blackstone_Library_Front.JPG" alt="Related Image">
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Wikipedia's Sister Projects</div>
-              <div class="faq-question">What are some other projects hosted by the Wikimedia Foundation beside Wikipedia?</div>
-              <div class="faq-answer">The Wikimedia Foundation hosts projects like Commons (free media repository), Wikibooks (free textbooks), Wikidata (knowledge base), Wikinews (news), Wikiquote (quotations), and others.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/commons.html">Commons</a>, <a href="/data/faqs/-wikibooks.html"> Wikibooks</a>, <a href="/data/faqs/-wikidata.html"> Wikidata</a>, <a href="/data/faqs/-wikinews.html"> Wikinews</a>, <a href="/data/faqs/-wikiquote.html"> Wikiquote</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Today's Featured Picture</div>
+                    <div class="faq-question">What is depicted in today's featured picture?</div>
+                    <div class="faq-answer">Today's featured picture showcases a lime, a citrus fruit known for its vibrant color and sour flavor. This image highlights both whole and halved limes and emphasizes their use in cuisine, particularly for their rich vitamin C content.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-lime-fruit-.html">Lime (fruit)</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e7/Lime_-_whole_and_halved.jpg/480px-Lime_-_whole_and_halved.jpg" alt="Related Image">
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Did You Know...</div>
-              <div class="faq-question">Who is Saint Amalberga and why is she significant?</div>
-              <div class="faq-answer">Saint Amalberga of Temse is the patron saint of upper-limb injuries due to a legend where Charlemagne broke her arm when she refused to marry him.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/amalberga-of-temse.html">Amalberga of Temse</a>, <a href="/data/faqs/-charlemagne.html"> Charlemagne</a></div>
-            </div>
-          
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Other Areas of Wikipedia</div>
+                    <div class="faq-question">What resources does Wikipedia offer for community support?</div>
+                    <div class="faq-answer">Wikipedia provides various resources for community support, including the Community Portal, Village Pump for discussions, and Help Desk for questions related to editing. These avenues help users engage with the community and improve the platform.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-wikipedia-community-portal.html">Wikipedia:Community portal</a>, <a href="/data/faqs/-wiki-wikipedia-village-pump.html">Wikipedia:Village pump</a>, <a href="/data/faqs/-wiki-wikipedia-help-desk.html">Wikipedia:Help desk</a></div>
+                  </div>
+                  
+                </div>
+              
 
-            <div class="faq-entry">
-              <div class="faq-subheader">Main Page Overview</div>
-              <div class="faq-question">What is Wikipedia and how many articles does it have in English?</div>
-              <div class="faq-answer">Wikipedia is a free encyclopedia that anyone can edit. As of the last update, it consists of 6,934,217 articles in English.</div>
-              <div class="faq-links">Related topics: <a href="/data/faqs/wikipedia.html">Wikipedia</a>, <a href="/data/faqs/-free-content.html"> Free content</a>, <a href="/data/faqs/-encyclopedia.html"> Encyclopedia</a></div>
-            </div>
-          
-        </body>
-        </html>
-      
+                <div class="faq-entry">
+                  <div class="faq-content">
+                    <div class="faq-subheader">Wikipedia's Sister Projects</div>
+                    <div class="faq-question">What are some of Wikipedia's sister projects?</div>
+                    <div class="faq-answer">Wikipedia's sister projects include Wikimedia Commons (a free media repository), Wikibooks (free textbooks), Wikidata (a free knowledge base), and Wikinews (free-content news). These projects extend the reach of information sharing beyond traditional articles.</div>
+                    <div class="faq-links">Related topics: <a href="/data/faqs/-wiki-commons.html">Commons</a>, <a href="/data/faqs/-wiki-wikibooks.html">Wikibooks</a>, <a href="/data/faqs/-wiki-wikidata.html">Wikidata</a>, <a href="/data/faqs/-wiki-wikinews.html">Wikinews</a></div>
+                  </div>
+                  <img src="https://upload.wikimedia.org/wikipedia/en/thumb/4/4a/Commons-logo.svg/480px-Commons-logo.svg.png" alt="Related Image">
+                </div>
+              
+        </div>
+      </body>
+      </html>
+    
