@@ -9,11 +9,20 @@ const FAQEntry = ({ faq }) => {
     return faq.human_readable_name.split('/')[0];
   };
 
+  // Updated function to properly handle cross-links
   const getRelatedTopics = () => {
     if (!faq.cross_links) return [];
     try {
       if (typeof faq.cross_links === 'string') {
-        return faq.cross_links.split(',').map((link) => link.trim());
+        return faq.cross_links.split(',')
+          .map(link => link.trim())
+          .map(link => {
+            // Remove /wiki/ prefix if present
+            const cleanLink = link.replace(/^\/wiki\//, '');
+            // Decode URL-encoded characters
+            return decodeURIComponent(cleanLink);
+          })
+          .filter(Boolean); // Remove empty links
       }
       return faq.cross_links;
     } catch {
@@ -25,25 +34,38 @@ const FAQEntry = ({ faq }) => {
   const relatedTopics = getRelatedTopics();
   const categorySlug = category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-  // Format the human-readable name for each related topic
+  // Updated function to better handle encoded URLs and special characters
   const formatHumanReadableName = (url) => {
-    const parts = url.split('/');
-    return parts[parts.length - 1].replace(/_/g, ' ');
+    try {
+      // Remove any remaining URL encoding and clean up the name
+      const decoded = decodeURIComponent(url);
+      return decoded
+        .replace(/_/g, ' ')
+        .replace(/\(.*?\)/g, '') // Remove parentheses and their contents
+        .trim();
+    } catch {
+      return url.replace(/_/g, ' ').trim();
+    }
   };
 
   return (
     <article className="faq-entry">
-      {/* Page Name */}
       <header className="entry-header">
         <a href={`/${categorySlug}`} className="page-name">
           {category}
         </a>
+        {faq.debug_info && process.env.NODE_ENV === 'development' && (
+          <div className="debug-info">
+            <small>
+              Match: {faq.debug_info.has_text_match ? 'Text' : 'Semantic'} (
+              Score: {Math.round(faq.debug_info.final_score * 100)}%)
+            </small>
+          </div>
+        )}
       </header>
 
-      {/* Subheader */}
       {faq.subheader && <div className="subheader">{faq.subheader}</div>}
 
-      {/* Question with Image */}
       <div className="question-with-image">
         <h2 className="question">Question: {faq.question}</h2>
         {faq.media_link && (
@@ -53,34 +75,43 @@ const FAQEntry = ({ faq }) => {
         )}
       </div>
 
-      {/* Answer */}
       <div className="answer-container">
         <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer) }}></div>
       </div>
 
-      {/* Related Topics */}
       {(relatedTopics.length > 0 || category) && (
         <div className="related-links">
           <span>Related Pages:</span>
           <ul>
-            {relatedTopics.map((topic, index) => (
-              <li key={index}>
-                <a
-                  href={`/${topic.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
-                  className="related-topic-link"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {formatHumanReadableName(topic)}
-                </a>
-              </li>
-            ))}
+            {relatedTopics.map((topic, index) => {
+              const formattedName = formatHumanReadableName(topic);
+              if (!formattedName) return null;
+
+              const slug = topic.toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
+                .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
+
+              return (
+                <li key={index}>
+                  <a
+                    href={`/${slug}`}
+                    className="related-topic-link"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {formattedName}
+                  </a>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
     </article>
   );
 };
+
 
 const TopicLink = ({ name }) => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');

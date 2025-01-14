@@ -39,6 +39,7 @@ client.connect().catch((err) => console.error("[DB] Connection error:", err.mess
 const FAQ_DIR = path.join(process.cwd(), "public/data/faqs");
 
 // Define tools for OpenAI function calling
+// Define tools for OpenAI function calling
 const tools = [
   {
     type: "function",
@@ -67,7 +68,7 @@ const tools = [
                 media_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant media links from the content." },
-                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. Don't reuse the same image for more than one Q&A.",
+                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. Don't reuse the same image for more than one Q&A. If there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
                 },
               },
               required: ["subheader", "question", "answer"],
@@ -79,22 +80,48 @@ const tools = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "generate_additional_faqs",
+      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that weren't already asked. Make sure to expand upon those answers comprehensively. If there are any unused images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "The title of the Wikipedia page." },
+          human_readable_name: { type: "string", description: "The human-readable page name." },
+          last_updated: { type: "string", description: "The last update timestamp of the page." },
+          additional_faqs: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                subheader: { type: "string", description: "The subheader under which this FAQ falls." },
+                question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass." },
+                answer: { type: "string", description: "The comprehensive answer to the question." },
+                cross_links: {
+                  type: "array",
+                  items: { type: "string", description: "Relevant cross-links from Wikipedia." },
+                  description: "Cross-links for the FAQ derived from the section.",
+                },
+                media_links: {
+                  type: "array",
+                  items: { type: "string", description: "Relevant media links from the content." },
+                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. Don't reuse the same image for more than one Q&A or any images used in the first pass.",
+                },
+              },
+              required: ["subheader", "question", "answer"],
+            },
+            description: "A list of additional FAQs organized by subheaders that complement the existing FAQs.",
+          },
+        },
+        required: ["title", "human_readable_name", "last_updated", "additional_faqs"],
+      },
+    },
+  },
 ];
 
 
-
-async function generateEmbedding(text) {
-  try {
-    const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: text,
-    });
-    return response.data[0].embedding;
-  } catch (error) {
-    console.error('[generateEmbedding] Error:', error.message);
-    throw error;
-  }
-}
 
 
 
@@ -219,6 +246,100 @@ ${contentWithImages}`,
     return null;
   }
 };
+
+
+const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
+  try {
+    const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
+
+    // Create a set of used images to avoid reuse
+    const usedImages = new Set(existingFAQs.flatMap(faq => faq.media_links || []));
+    const unusedImages = truncatedMediaLinks.filter(img => !usedImages.has(img));
+
+    const existingQuestions = existingFAQs.map(faq => `- ${faq.question}\n  Subheader: ${faq.subheader}\n  Used images: ${(faq.media_links || []).join(", ")}`).join('\n');
+
+    const contentWithImages = `
+      ${truncatedContent}
+
+      Available Unused Images:
+      ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
+    `;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are a brilliant writer tasked with extracting additional fascinating FAQs from Wikipedia content that weren't covered in the first pass. Start with the most interesting uncovered questions and work your way down. Focus on clarity, relevance, and engagement while avoiding jargon. Use all available information from Wikipedia, but prioritize what most people would find most interesting among the topics not yet covered. Ensure comprehensive answers and proper use of available images that haven't been used before.",
+        },
+        {
+          role: "user",
+          content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high quality standards. Focus on interesting aspects that weren't covered in the first pass.
+
+Title: ${title}
+
+Content:
+${contentWithImages}
+
+Existing Questions (to avoid duplication):
+${existingQuestions}
+
+Requirements:
+1. Generate entirely new questions that don't overlap with existing ones
+2. Focus on the most interesting uncovered aspects first
+3. Provide comprehensive, engaging answers
+4. Only use images that weren't used in the first pass
+5. Maintain the same high standards of clarity and relevance
+6. Group under appropriate subheaders
+7. Include relevant cross-links`,
+        },
+      ],
+      tools,
+      tool_choice: { type: "function", function: { name: "generate_additional_faqs" } }
+    });
+
+    const toolCall = response.choices[0].message.tool_calls?.[0];
+    if (!toolCall) {
+      console.error(`[generateAdditionalFAQs] No function call generated for ${title}.`);
+      return null;
+    }
+
+    const args = JSON.parse(toolCall.function.arguments);
+    return args.additional_faqs;
+  } catch (error) {
+    console.error(`[generateAdditionalFAQs] Error: ${error.message}`);
+    return [];
+  }
+};
+
+
+const processWithEnrichment = async (title, content, images, url, humanReadableName, lastUpdated) => {
+  console.log(`[processWithEnrichment] Starting enrichment process for "${title}"`);
+
+  // First pass - generate initial FAQs
+  const structuredFAQs = await generateStructuredFAQs(title, content, lastUpdated, images);
+  if (!structuredFAQs) {
+    console.error(`[processWithEnrichment] Initial FAQ generation failed for "${title}"`);
+    return false;
+  }
+
+  // Save initial FAQs
+  const { faqs, human_readable_name, last_updated } = structuredFAQs;
+  await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
+
+  // Second pass - generate additional FAQs
+  console.log(`[processWithEnrichment] Starting second pass for "${title}"`);
+  const additionalFAQs = await generateAdditionalFAQs(title, content, faqs, images);
+
+  if (additionalFAQs && additionalFAQs.length > 0) {
+    console.log(`[processWithEnrichment] Found ${additionalFAQs.length} additional FAQs for "${title}"`);
+    await saveStructuredFAQ(title, url, human_readable_name, last_updated, additionalFAQs);
+  }
+
+  return true;
+};
+
+
 
 
 
@@ -417,6 +538,27 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
   }
 };
 
+// Add this utility function to handle cross-links properly
+const formatCrossLinks = (links) => {
+  if (!links) return [];
+  try {
+    if (typeof links === 'string') {
+      return links.split(',')
+        .map(link => link.trim())
+        .map(link => {
+          // Remove /wiki/ prefix if present
+          const cleanLink = link.replace(/^\/wiki\//, '');
+          // Decode URL-encoded characters
+          return decodeURIComponent(cleanLink);
+        })
+        .filter(Boolean); // Remove empty links
+    }
+    return links;
+  } catch {
+    return [];
+  }
+};
+
 
 const fetchThumbnailURL = async (mediaLink, size = 480) => {
   // Check if the mediaLink is a Wikimedia image
@@ -486,82 +628,96 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
 
 // Main process
 const main = async (newPagesTarget = 50) => {
-  console.log("[main] Starting FAQ generation process...");
-
+  console.log("[main] Starting FAQ generation process with enrichment...");
   let processedCount = 0;
   let offset = 0;
 
-  while (processedCount < newPagesTarget) {
-    const titles = await fetchTopWikipediaPages(offset, 50); // Fetch the next 50 titles
-    if (!titles.length) {
-      console.error("[main] No more titles to fetch. Exiting...");
-      break;
-    }
-
-    for (const title of titles) {
-      if (processedCount >= newPagesTarget) {
-        console.log(`[main] Processed ${processedCount} pages. Target reached.`);
-        return;
+  try {
+    while (processedCount < newPagesTarget) {
+      const titles = await fetchTopWikipediaPages(offset, 50);
+      if (!titles.length) {
+        console.error("[main] No more titles to fetch. Exiting...");
+        break;
       }
 
-      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      console.log(`[main] Checking existence for slug: "${slug}"`);
+      for (const title of titles) {
+        if (processedCount >= newPagesTarget) {
+          console.log(`[main] Processed ${processedCount} pages. Target reached.`);
+          return;
+        }
 
-      // Check if the slug already exists in the database
-      try {
-        const result = await client.query("SELECT slug FROM faq_files WHERE slug = $1;", [slug]);
-        if (result.rows.length > 0) {
-          console.log(`[main] Skipping "${title}" as it already exists in the database.`);
+        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        console.log(`[main] Checking existence for slug: "${slug}"`);
+
+        try {
+          const result = await client.query("SELECT slug FROM faq_files WHERE slug = $1;", [slug]);
+          if (result.rows.length > 0) {
+            console.log(`[main] Skipping "${title}" as it already exists in the database.`);
+            continue;
+          }
+        } catch (error) {
+          console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
           continue;
         }
-      } catch (error) {
-        console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
-        continue;
+
+        console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
+
+        const url = `https://en.wikipedia.org/wiki/${title}`;
+        const metadata = await fetchWikipediaMetadata(title);
+        const { lastUpdated, humanReadableName } = metadata;
+
+        if (!humanReadableName) {
+          console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
+          continue;
+        }
+
+        const pageData = await fetchWikipediaPage(title);
+        if (!pageData) {
+          console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
+          continue;
+        }
+
+        const { content, images } = pageData;
+
+        console.log(`[main] Starting enrichment process for "${title}"`);
+        const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
+
+        if (!success) {
+          console.error(`[main] Enrichment process failed for "${title}"`);
+          continue;
+        }
+
+        await saveMetadata(slug, humanReadableName);
+        console.log(`[main] Successfully processed and enriched FAQs for "${title}"`);
+        processedCount++;
       }
 
-      console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
-
-      const url = `https://en.wikipedia.org/wiki/${title}`;
-      const metadata = await fetchWikipediaMetadata(title);
-      const { lastUpdated, humanReadableName } = metadata;
-
-      if (!humanReadableName) {
-        console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
-        continue;
-      }
-
-      const pageData = await fetchWikipediaPage(title);
-      if (!pageData) {
-        console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
-        continue;
-      }
-
-      const { content, images } = pageData;
-      const structuredFAQs = await generateStructuredFAQs(title, content, lastUpdated, images);
-      if (!structuredFAQs) {
-        console.error(`[main] Skipping "${title}" due to FAQ generation failure.`);
-        continue;
-      }
-
-      const { faqs, human_readable_name, last_updated } = structuredFAQs;
-      await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
-      await saveMetadata(slug, human_readable_name);
-
-      console.log(`[main] Successfully processed and saved FAQs for "${title}".`);
-      processedCount++;
+      offset += 50;
     }
 
-    offset += 50; // Move to the next batch
+    console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
+  } finally {
+    // Ensure database connection is closed properly
+    console.log("[main] Closing database connection...");
+    await client.end();
+    console.log("[main] Database connection closed.");
   }
-
-  console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
-  process.exit(0); // Cleanly terminate the Node.js process
 };
 
-main(10)
-  .then(() => console.log("[main] Execution finished successfully."))
-  .catch((error) => {
+// Replace the existing execution code with this
+main(30)
+  .then(() => {
+    console.log("[main] Execution finished successfully.");
+    process.exit(0);
+  })
+  .catch(async (error) => {
     console.error("[main] An error occurred:", error);
-    process.exit(1); // Exit with error code if something goes wrong
+    // Ensure database connection is closed even on error
+    try {
+      await client.end();
+      console.log("[main] Database connection closed after error.");
+    } catch (dbError) {
+      console.error("[main] Error closing database connection:", dbError);
+    }
+    process.exit(1);
   });
-

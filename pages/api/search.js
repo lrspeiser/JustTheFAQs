@@ -1,5 +1,6 @@
+// pages/api/search.js
 import { pipeline } from "@xenova/transformers";
-import { Client } from "pg";
+import pool, { withTransaction } from '../../lib/db';
 
 // Embedder initialization with timeout
 let embedder = null;
@@ -46,8 +47,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
-
   try {
     console.log("[API/Search] User triggered search.");
 
@@ -57,62 +56,65 @@ export default async function handler(req, res) {
     }
     console.log("[API/Search] User query received:", query);
 
-    // Initialize embedder and generate embedding first (we'll need it either way)
+    // Initialize embedder and generate embedding first
     const localEmbedder = await initEmbedder();
     console.log("[API/Search] Generating embedding for user query...");
     const queryEmbedding = await generateEmbedding(localEmbedder, query);
 
-    await client.connect();
-    console.log("[API/Search] Database connection successful.");
+    // Use withTransaction for database operations
+    const searchResults = await withTransaction(async (client) => {
+      console.log("[API/Search] Database connection successful.");
 
-    // Combined query that gets both text and semantic matches
-    const combinedSearchQuery = `
-      WITH semantic_results AS (
+      const combinedSearchQuery = `
+        WITH semantic_results AS (
+          SELECT 
+            r.id, 
+            r.question, 
+            r.answer, 
+            r.title,
+            r.media_link,
+            r.thumbnail_url,
+            r.cross_link,
+            r.subheader,
+            r.human_readable_name,
+            f.slug, 
+            1 - (e.embedding <=> $1::vector) AS semantic_score,
+            CASE 
+              WHEN r.question ILIKE $2 OR r.answer ILIKE $2 THEN true
+              ELSE false
+            END as has_text_match
+          FROM 
+            faq_embeddings e
+          JOIN 
+            raw_faqs r ON e.faq_id = r.id
+          JOIN 
+            faq_files f ON f.human_readable_name = r.human_readable_name
+        )
         SELECT 
-          r.id, 
-          r.question, 
-          r.answer, 
-          r.title,
-          r.media_link,
-          r.thumbnail_url,
-          r.cross_link,
-          r.subheader,
-          r.human_readable_name,
-          f.slug, 
-          1 - (e.embedding <=> $1::vector) AS semantic_score,
+          *,
           CASE 
-            WHEN r.question ILIKE $2 OR r.answer ILIKE $2 THEN true
-            ELSE false
-          END as has_text_match
+            WHEN has_text_match THEN 1.0
+            ELSE semantic_score
+          END as similarity
         FROM 
-          faq_embeddings e
-        JOIN 
-          raw_faqs r ON e.faq_id = r.id
-        JOIN 
-          faq_files f ON f.human_readable_name = r.human_readable_name
-      )
-      SELECT 
-        *,
-        CASE 
-          WHEN has_text_match THEN 1.0  -- Text matches get perfect score
-          ELSE semantic_score  -- Semantic matches keep their score
-        END as similarity
-      FROM 
-        semantic_results
-      ORDER BY 
-        has_text_match DESC,  -- Text matches first
-        semantic_score DESC   -- Then by semantic similarity
-      LIMIT 10;
-    `;
+          semantic_results
+        ORDER BY 
+          has_text_match DESC,
+          semantic_score DESC
+        LIMIT 10;
+      `;
 
-    const searchResults = await client.query(combinedSearchQuery, [
-      `[${formatEmbeddingForPg(queryEmbedding)}]`,
-      `%${query}%`
-    ]);
+      const result = await client.query(combinedSearchQuery, [
+        `[${formatEmbeddingForPg(queryEmbedding)}]`,
+        `%${query}%`
+      ]);
+
+      return result.rows;
+    });
 
     console.log("[API/Search] Search completed successfully");
 
-    const mappedResults = searchResults.rows.map(row => ({
+    const mappedResults = searchResults.map(row => ({
       ...row,
       cross_links: row.cross_link ? row.cross_link.split(',').map(link => link.trim()) : [],
       media_link: row.thumbnail_url || row.media_link,
@@ -133,11 +135,6 @@ export default async function handler(req, res) {
       details: error.stack
     });
   } finally {
-    try {
-      await client.end();
-    } catch (e) {
-      console.error("[API/Search] Error closing database connection:", e);
-    }
     console.log("[API/Search] Handler execution completed.");
   }
 }
