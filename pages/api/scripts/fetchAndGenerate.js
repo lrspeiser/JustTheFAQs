@@ -388,13 +388,16 @@ const fetchWikipediaPage = async (title) => {
 
 const insertDataToSupabase = async (tableName, data) => {
   try {
-    console.log(`[Supabase] Inserting data into table: ${tableName}`);
+    console.log(`[Supabase] Attempting to insert into ${tableName}:`, data);
     const { data: insertedData, error } = await supabase.from(tableName).insert([data]);
-    if (error) throw error;
-    console.log(`[Supabase] Data inserted into ${tableName}:`, insertedData);
+    if (error) {
+      console.error(`[Supabase] Error inserting into ${tableName}:`, error.message);
+      throw error;
+    }
+    console.log(`[Supabase] Successfully inserted into ${tableName}:`, insertedData);
     return insertedData;
   } catch (error) {
-    console.error(`[Supabase] Error inserting data into ${tableName}:`, error.message);
+    console.error(`[Supabase] Unexpected error during insert into ${tableName}:`, error.message);
     throw error;
   }
 };
