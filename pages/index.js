@@ -9,20 +9,52 @@ const FAQEntry = ({ faq }) => {
     return faq.human_readable_name.split('/')[0];
   };
 
-  // Updated function to properly handle cross-links
+  // Function to properly format Wikipedia-style URLs while preserving case
+  const formatWikiSlug = (url) => {
+    if (!url) return '';
+    try {
+      // Remove '/wiki/' prefix if present
+      let cleanUrl = url.replace(/^\/wiki\//, '');
+      // Decode URL-encoded characters
+      cleanUrl = decodeURIComponent(cleanUrl);
+      // Replace underscores with hyphens but preserve case
+      return cleanUrl
+        .replace(/_/g, '-')
+        .replace(/[^\w\-]+/g, '-')  // Replace special chars with hyphens while preserving case
+        .replace(/-+/g, '-')        // Replace multiple hyphens with single hyphen
+        .replace(/^-|-$/g, '');     // Remove leading/trailing hyphens
+    } catch {
+      return url.replace(/[^\w\-]+/g, '-');
+    }
+  };
+
+  // Function to get display name from URL, preserving case
+  const formatHumanReadableName = (url) => {
+    if (!url) return '';
+    try {
+      // Remove '/wiki/' prefix and decode
+      let name = url.replace(/^\/wiki\//, '');
+      name = decodeURIComponent(name);
+      // Replace underscores with spaces and remove parenthetical content
+      return name
+        .replace(/_/g, ' ')
+        .replace(/\(.*?\)/g, '')
+        .replace(/\u2013/g, '-') // Replace en dash with hyphen
+        .replace(/\u2014/g, '-') // Replace em dash with hyphen
+        .trim();
+    } catch {
+      return url.replace(/_/g, ' ').trim();
+    }
+  };
+
   const getRelatedTopics = () => {
     if (!faq.cross_links) return [];
     try {
       if (typeof faq.cross_links === 'string') {
-        return faq.cross_links.split(',')
+        return faq.cross_links
+          .split(',')
           .map(link => link.trim())
-          .map(link => {
-            // Remove /wiki/ prefix if present
-            const cleanLink = link.replace(/^\/wiki\//, '');
-            // Decode URL-encoded characters
-            return decodeURIComponent(cleanLink);
-          })
-          .filter(Boolean); // Remove empty links
+          .filter(Boolean);
       }
       return faq.cross_links;
     } catch {
@@ -32,21 +64,8 @@ const FAQEntry = ({ faq }) => {
 
   const category = getCategory();
   const relatedTopics = getRelatedTopics();
-  const categorySlug = category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-
-  // Updated function to better handle encoded URLs and special characters
-  const formatHumanReadableName = (url) => {
-    try {
-      // Remove any remaining URL encoding and clean up the name
-      const decoded = decodeURIComponent(url);
-      return decoded
-        .replace(/_/g, ' ')
-        .replace(/\(.*?\)/g, '') // Remove parentheses and their contents
-        .trim();
-    } catch {
-      return url.replace(/_/g, ' ').trim();
-    }
-  };
+  // For category slug, we'll maintain case consistency
+  const categorySlug = formatWikiSlug(category);
 
   return (
     <article className="faq-entry">
@@ -84,13 +103,10 @@ const FAQEntry = ({ faq }) => {
           <span>Related Pages:</span>
           <ul>
             {relatedTopics.map((topic, index) => {
-              const formattedName = formatHumanReadableName(topic);
-              if (!formattedName) return null;
+              const displayName = formatHumanReadableName(topic);
+              const slug = formatWikiSlug(topic);
 
-              const slug = topic.toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/-+/g, '-') // Replace multiple hyphens with single hyphen
-                .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
+              if (!displayName || !slug) return null;
 
               return (
                 <li key={index}>
@@ -100,7 +116,7 @@ const FAQEntry = ({ faq }) => {
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    {formattedName}
+                    {displayName}
                   </a>
                 </li>
               );

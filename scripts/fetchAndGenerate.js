@@ -3,8 +3,7 @@
 import axios from "axios";
 import fs from "fs-extra";
 import path from "path";
-import pkg from "pg";
-const { Client } = pkg;
+import { pool, withTransaction } from '../lib/db.js';
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { exec } from "child_process";
@@ -23,22 +22,20 @@ const openai = new OpenAI({
   apiKey: process.env["OPENAI_API_KEY"],
 });
 
-// Add this formatting helper function at the top level
-const formatEmbeddingForPg = (embedding) => {
-  return `[${embedding.join(',')}]`;
-};
+async function getClient() {
+  console.log('[DB] Acquiring client from pool...');
+  const client = await pool.connect();
+  console.log('[DB] Client acquired.');
+  return client;
+}
 
-// Database connection setup
-const client = new Client({
-  connectionString: process.env.DATABASE_URL,
+
+// Add error handler for pool
+pool.on('error', (err) => {
+  console.error('Unexpected database error:', err);
 });
 
-client.connect().catch((err) => console.error("[DB] Connection error:", err.message));
 
-// Directory to save FAQ files
-const FAQ_DIR = path.join(process.cwd(), "public/data/faqs");
-
-// Define tools for OpenAI function calling
 // Define tools for OpenAI function calling
 const tools = [
   {
@@ -449,8 +446,9 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
     console.log("[saveStructuredFAQ] Starting database insertions...");
 
-    // Process each FAQ with its own transaction
+    // Process each FAQ with its own transaction using the pool
     for (const faq of faqWithThumbnails) {
+      const client = await pool.connect();
       try {
         await client.query('BEGIN');
 
@@ -524,6 +522,8 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
           error: faqError.message,
           question: faq.question?.substring(0, 50) + "..."
         });
+      } finally {
+        client.release(); // Return the client to the pool
       }
     }
 
@@ -626,6 +626,7 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
 
 
 
+
 // Main process
 const main = async (newPagesTarget = 50) => {
   console.log("[main] Starting FAQ generation process with enrichment...");
@@ -633,6 +634,15 @@ const main = async (newPagesTarget = 50) => {
   let offset = 0;
 
   try {
+    // Test database connection
+    const client = await getClient();
+    try {
+      const { rows } = await client.query('SELECT NOW()');
+      console.log('[DB] Connection test successful:', rows[0].now);
+    } finally {
+      client.release();
+    }
+
     while (processedCount < newPagesTarget) {
       const titles = await fetchTopWikipediaPages(offset, 50);
       if (!titles.length) {
@@ -649,8 +659,10 @@ const main = async (newPagesTarget = 50) => {
         const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         console.log(`[main] Checking existence for slug: "${slug}"`);
 
+        // Get a client for this query
+        const checkClient = await getClient();
         try {
-          const result = await client.query("SELECT slug FROM faq_files WHERE slug = $1;", [slug]);
+          const result = await checkClient.query("SELECT slug FROM faq_files WHERE slug = $1;", [slug]);
           if (result.rows.length > 0) {
             console.log(`[main] Skipping "${title}" as it already exists in the database.`);
             continue;
@@ -658,8 +670,11 @@ const main = async (newPagesTarget = 50) => {
         } catch (error) {
           console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
           continue;
+        } finally {
+          checkClient.release();
         }
 
+        // Rest of your existing code...
         console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
 
         const url = `https://en.wikipedia.org/wiki/${title}`;
@@ -678,7 +693,6 @@ const main = async (newPagesTarget = 50) => {
         }
 
         const { content, images } = pageData;
-
         console.log(`[main] Starting enrichment process for "${title}"`);
         const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
 
@@ -697,27 +711,18 @@ const main = async (newPagesTarget = 50) => {
 
     console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
   } finally {
-    // Ensure database connection is closed properly
-    console.log("[main] Closing database connection...");
-    await client.end();
-    console.log("[main] Database connection closed.");
+    // No need to close the pool here, it will be handled automatically
   }
 };
 
 // Replace the existing execution code with this
-main(30)
+main(2)
   .then(() => {
     console.log("[main] Execution finished successfully.");
     process.exit(0);
   })
   .catch(async (error) => {
     console.error("[main] An error occurred:", error);
-    // Ensure database connection is closed even on error
-    try {
-      await client.end();
-      console.log("[main] Database connection closed after error.");
-    } catch (dbError) {
-      console.error("[main] Error closing database connection:", dbError);
-    }
+    // Pool will clean up automatically
     process.exit(1);
   });
