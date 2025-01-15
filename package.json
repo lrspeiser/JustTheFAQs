@@ -7,8 +7,7 @@
     "dev": "next dev --port 3000 --hostname 0.0.0.0",
     "build": "node scripts/prebuild.js && next build",
     "start": "next start --port 3000 --hostname 0.0.0.0",
-    "lint": "next lint",
-    "vercel-build": "node scripts/prebuild.js && next build"
+    "lint": "next lint"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.47.13",
