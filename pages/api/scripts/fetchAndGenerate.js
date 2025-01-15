@@ -1,13 +1,14 @@
 // scripts/fetchAndGenerate.js
 
 import axios from "axios";
-import fs from "fs-extra";
-import path from "path";
-import { pool, withTransaction } from '../lib/db.js';
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
-import { exec } from "child_process";
 import { pipeline } from '@xenova/transformers';
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
 
 // Add this after your imports
 let embedder = null;
@@ -22,19 +23,17 @@ const openai = new OpenAI({
   apiKey: process.env["OPENAI_API_KEY"],
 });
 
-async function getClient() {
-  console.log('[DB] Acquiring client from pool...');
-  const client = await pool.connect();
-  console.log('[DB] Client acquired.');
-  return client;
+// Initialize Supabase client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('[Supabase] Missing environment variables for Supabase URL or Anon Key');
+  process.exit(1);
 }
 
-
-// Add error handler for pool
-pool.on('error', (err) => {
-  console.error('Unexpected database error:', err);
-});
-
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+console.log('[Supabase] Supabase client initialized.');
 
 // Define tools for OpenAI function calling
 const tools = [
@@ -150,26 +149,23 @@ const fetchWikipediaMetadata = async (title) => {
 
 const saveMetadata = async (slug, humanReadableName) => {
   const relativeFilePath = `/data/faqs/${slug}.html`; // Construct file path
-  const metadataQuery = `
-    INSERT INTO faq_files (slug, file_path, human_readable_name, created_at)
-    VALUES ($1, $2, $3, NOW())
-    ON CONFLICT (slug) 
-    DO UPDATE SET 
-      file_path = EXCLUDED.file_path, 
-      human_readable_name = EXCLUDED.human_readable_name,
-      created_at = NOW(); -- Optional to update timestamp
-  `;
-  const metadataValues = [slug, relativeFilePath, humanReadableName];
+  const data = {
+    slug,
+    file_path: relativeFilePath,
+    human_readable_name: humanReadableName,
+    created_at: new Date().toISOString(),
+  };
 
-  console.log("[saveMetadata] Running query with values:", metadataValues);
+  console.log("[saveMetadata] Saving metadata with values:", data);
 
   try {
-    const result = await client.query(metadataQuery, metadataValues);
+    await insertDataToSupabase('faq_files', data);
     console.log(`[saveMetadata] Metadata saved for: ${slug}`);
-  } catch (err) {
-    console.error("[saveMetadata] Error saving metadata:", err.message);
+  } catch (error) {
+    console.error("[saveMetadata] Error saving metadata:", error.message);
   }
 };
+
 
 
 
@@ -390,7 +386,18 @@ const fetchWikipediaPage = async (title) => {
   }
 };
 
-
+const insertDataToSupabase = async (tableName, data) => {
+  try {
+    console.log(`[Supabase] Inserting data into table: ${tableName}`);
+    const { data: insertedData, error } = await supabase.from(tableName).insert([data]);
+    if (error) throw error;
+    console.log(`[Supabase] Data inserted into ${tableName}:`, insertedData);
+    return insertedData;
+  } catch (error) {
+    console.error(`[Supabase] Error inserting data into ${tableName}:`, error.message);
+    throw error;
+  }
+};
 
 
 const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
@@ -399,144 +406,85 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
     return;
   }
 
-  // Ensure database schema includes an 'image_urls' column
-  const rawQuery = `
-    INSERT INTO raw_faqs (url, title, human_readable_name, last_updated, subheader, question, answer, cross_link, media_link, image_urls)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-    ON CONFLICT DO NOTHING
-    RETURNING id;
-  `;
+  console.log("[saveStructuredFAQ] Starting process for:", {
+    title,
+    faqCount: faqs.length,
+    firstQuestion: faqs[0]?.question
+  });
 
-  try {
-    console.log("[saveStructuredFAQ] Starting process for:", {
-      title,
-      faqCount: faqs.length,
-      firstQuestion: faqs[0]?.question
-    });
-
-    console.log("[saveStructuredFAQ] Processing thumbnails...");
-    const faqWithThumbnails = await Promise.all(
-      faqs.map(async (faq, index) => {
-        try {
-          console.log(`[saveStructuredFAQ] Processing FAQ ${index + 1}:`, {
-            question: faq.question,
-            mediaLinksCount: faq.media_links?.length || 0
-          });
-
-          const mediaLink = faq.media_links?.[0] || null;
-          console.log(`[saveStructuredFAQ] Media link for FAQ ${index + 1}:`, mediaLink);
-
-          let thumbnailURL = null;
-          if (mediaLink) {
-            try {
-              thumbnailURL = await fetchThumbnailURL(mediaLink, 480);
-              console.log(`[saveStructuredFAQ] Generated thumbnail for FAQ ${index + 1}:`, thumbnailURL);
-            } catch (thumbnailError) {
-              console.error(`[saveStructuredFAQ] Thumbnail generation error for FAQ ${index + 1}:`, thumbnailError);
-            }
-          }
-
-          return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
-        } catch (faqError) {
-          console.error(`[saveStructuredFAQ] Error processing FAQ ${index + 1}:`, faqError);
-          return { ...faq, thumbnailURL: null, mediaLinks: [] };
-        }
-      })
-    );
-
-    console.log("[saveStructuredFAQ] Starting database insertions...");
-
-    // Process each FAQ with its own transaction using the pool
-    for (const faq of faqWithThumbnails) {
-      const client = await pool.connect();
+  console.log("[saveStructuredFAQ] Processing thumbnails...");
+  const faqWithThumbnails = await Promise.all(
+    faqs.map(async (faq, index) => {
       try {
-        await client.query('BEGIN');
-
-        console.log(`[saveStructuredFAQ] Processing FAQ:`, {
-          question: faq.question?.substring(0, 50) + "...",
-          subheader: faq.subheader || "No Subheader"
+        console.log(`[saveStructuredFAQ] Processing FAQ ${index + 1}:`, {
+          question: faq.question,
+          mediaLinksCount: faq.media_links?.length || 0
         });
 
-        const imageUrls = Array.isArray(faq.mediaLinks) ? faq.mediaLinks.join(", ") : "";
-        console.log(`[saveStructuredFAQ] Prepared image URLs:`, imageUrls);
+        const mediaLink = faq.media_links?.[0] || null;
+        console.log(`[saveStructuredFAQ] Media link for FAQ ${index + 1}:`, mediaLink);
 
-        const values = [
-          url,
-          title,
-          humanReadableName,
-          lastUpdated,
-          faq.subheader || null,
-          faq.question,
-          faq.answer,
-          faq.cross_links ? faq.cross_links.join(", ") : null,
-          faq.thumbnailURL,
-          imageUrls
-        ];
-
-        // Save FAQ and get its ID
-        const faqResult = await client.query(rawQuery, values);
-        const faqId = faqResult.rows[0]?.id;
-
-        if (!faqId) {
-          console.warn(`[saveStructuredFAQ] No ID returned for FAQ:`, {
-            question: faq.question?.substring(0, 50) + "..."
-          });
-          await client.query('ROLLBACK');
-          continue;
+        let thumbnailURL = null;
+        if (mediaLink) {
+          try {
+            thumbnailURL = await fetchThumbnailURL(mediaLink, 480);
+            console.log(`[saveStructuredFAQ] Generated thumbnail for FAQ ${index + 1}:`, thumbnailURL);
+          } catch (thumbnailError) {
+            console.error(`[saveStructuredFAQ] Thumbnail generation error for FAQ ${index + 1}:`, thumbnailError);
+          }
         }
 
-        console.log(`[DB] FAQ saved with ID ${faqId}: "${faq.question?.substring(0, 50)}..."`);
-
-        // Generate and save embedding
-        try {
-          console.log(`[saveStructuredFAQ] Generating embedding for FAQ ID ${faqId}`);
-
-          // Initialize embedder if needed
-          const localEmbedder = await initEmbedder();
-
-          // Generate embedding
-          const output = await localEmbedder(faq.question, { pooling: 'mean', normalize: true });
-          const embedding = Array.from(output.data);
-
-          // Format for Postgres
-          const formattedEmbedding = `[${embedding.join(',')}]`;
-
-          await client.query(
-            `INSERT INTO faq_embeddings (faq_id, question, embedding) 
-             VALUES ($1, $2, $3)`,
-            [faqId, faq.question, formattedEmbedding]
-          );
-          console.log(`[DB] Embedding saved for FAQ ID ${faqId}`);
-        } catch (embeddingError) {
-          console.error(`[DB] Error saving embedding for FAQ ID ${faqId}:`, embeddingError);
-          await client.query('ROLLBACK');
-          continue;
-        }
-
-        await client.query('COMMIT');
-        console.log(`[DB] Successfully saved FAQ and embedding for ID ${faqId}`);
-
+        return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
       } catch (faqError) {
-        await client.query('ROLLBACK');
-        console.error(`[saveStructuredFAQ] Error saving FAQ:`, {
-          error: faqError.message,
-          question: faq.question?.substring(0, 50) + "..."
-        });
-      } finally {
-        client.release(); // Return the client to the pool
+        console.error(`[saveStructuredFAQ] Error processing FAQ ${index + 1}:`, faqError);
+        return { ...faq, thumbnailURL: null, mediaLinks: [] };
       }
-    }
+    })
+  );
 
-  } catch (err) {
-    console.error("[saveStructuredFAQ] Error with full details:", {
-      message: err.message,
-      stack: err.stack,
-      title: title,
-      faqCount: faqs?.length || 0
-    });
-    throw err; // Re-throw to ensure calling function knows about the failure
+  console.log("[saveStructuredFAQ] Starting database insertions...");
+
+  for (const faq of faqWithThumbnails) {
+    const data = {
+      url,
+      title,
+      human_readable_name: humanReadableName,
+      last_updated: lastUpdated,
+      subheader: faq.subheader || null,
+      question: faq.question,
+      answer: faq.answer,
+      cross_link: faq.cross_links ? faq.cross_links.join(", ") : null,
+      media_link: faq.thumbnailURL || null,
+      image_urls: faq.mediaLinks ? faq.mediaLinks.join(", ") : null,
+    };
+
+    console.log(`[saveStructuredFAQ] Saving FAQ: ${faq.question}`);
+
+    try {
+      // Save FAQ to Supabase
+      await insertDataToSupabase('raw_faqs', data);
+      console.log(`[saveStructuredFAQ] FAQ saved for question: ${faq.question}`);
+
+      // Generate and save embeddings
+      console.log(`[saveStructuredFAQ] Generating embedding for FAQ question: ${faq.question}`);
+      const localEmbedder = await initEmbedder();
+      const output = await localEmbedder(faq.question, { pooling: 'mean', normalize: true });
+      const embedding = Array.from(output.data);
+
+      // Save embedding to Supabase
+      const embeddingData = {
+        faq_id: faq.id, // Replace with actual ID if needed
+        question: faq.question,
+        embedding,
+      };
+      await insertDataToSupabase('faq_embeddings', embeddingData);
+      console.log(`[saveStructuredFAQ] Embedding saved for FAQ question: ${faq.question}`);
+    } catch (error) {
+      console.error(`[saveStructuredFAQ] Error saving FAQ: ${faq.question}`, error.message);
+    }
   }
 };
+
 
 // Add this utility function to handle cross-links properly
 const formatCrossLinks = (links) => {
@@ -634,13 +582,16 @@ const main = async (newPagesTarget = 50) => {
   let offset = 0;
 
   try {
-    // Test database connection
-    const client = await getClient();
+    // Test Supabase connection
     try {
-      const { rows } = await client.query('SELECT NOW()');
-      console.log('[DB] Connection test successful:', rows[0].now);
-    } finally {
-      client.release();
+      const { data, error } = await supabase.rpc("test_connection");
+      if (error) {
+        throw new Error(`[Supabase] Connection test failed: ${error.message}`);
+      }
+      console.log('[Supabase] Connection test successful:', data);
+    } catch (error) {
+      console.error(`[Supabase] Connection test failed:`, error.message);
+      return;
     }
 
     while (processedCount < newPagesTarget) {
@@ -659,22 +610,28 @@ const main = async (newPagesTarget = 50) => {
         const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         console.log(`[main] Checking existence for slug: "${slug}"`);
 
-        // Get a client for this query
-        const checkClient = await getClient();
+        // Check if the slug already exists in the database using Supabase
         try {
-          const result = await checkClient.query("SELECT slug FROM faq_files WHERE slug = $1;", [slug]);
-          if (result.rows.length > 0) {
+          const { data, error } = await supabase
+            .from("faq_files")
+            .select("slug")
+            .eq("slug", slug);
+
+          if (error) {
+            console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
+            continue;
+          }
+
+          if (data && data.length > 0) {
             console.log(`[main] Skipping "${title}" as it already exists in the database.`);
             continue;
           }
         } catch (error) {
-          console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
+          console.error(`[main] Unexpected error during slug check for "${slug}":`, error.message);
           continue;
-        } finally {
-          checkClient.release();
         }
 
-        // Rest of your existing code...
+        // Process the title
         console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
 
         const url = `https://en.wikipedia.org/wiki/${title}`;
@@ -710,10 +667,11 @@ const main = async (newPagesTarget = 50) => {
     }
 
     console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
-  } finally {
-    // No need to close the pool here, it will be handled automatically
+  } catch (error) {
+    console.error(`[main] Unexpected error:`, error.message);
   }
 };
+
 
 // Replace the existing execution code with this
 main(2)

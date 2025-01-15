@@ -1,11 +1,13 @@
 import { exec } from 'child_process';
 
+
 export default function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const scriptPath = './scripts/fetchAndGenerate.js'; // Adjust the path as needed
+  const scriptPath = './pages/api/scripts/fetchAndGenerate.js';
+ // Adjust the path as needed
   console.log('[FetchAndGenerate API] Starting the script:', scriptPath);
 
   exec(`node ${scriptPath}`, (error, stdout, stderr) => {
