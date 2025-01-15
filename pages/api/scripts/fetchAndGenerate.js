@@ -148,10 +148,9 @@ const fetchWikipediaMetadata = async (title) => {
 };
 
 const saveMetadata = async (slug, humanReadableName) => {
-  const relativeFilePath = `/data/faqs/${slug}.html`; // Construct file path
+  // Prepare metadata without file path
   const data = {
     slug,
-    file_path: relativeFilePath,
     human_readable_name: humanReadableName,
     created_at: new Date().toISOString(),
   };
@@ -159,6 +158,7 @@ const saveMetadata = async (slug, humanReadableName) => {
   console.log("[saveMetadata] Saving metadata with values:", data);
 
   try {
+    // Insert the metadata into Supabase
     await insertDataToSupabase('faq_files', data);
     console.log(`[saveMetadata] Metadata saved for: ${slug}`);
   } catch (error) {
