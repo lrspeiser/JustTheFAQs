@@ -1,42 +1,90 @@
 # JustTheFAQs
 
-JustTheFAQs is a Node.js-based application designed to generate structured FAQ pages from Wikipedia content. By leveraging the Wikipedia API and OpenAI's GPT-4 API, the program extracts key information, organizes it into concise and engaging question-and-answer pairs, and saves the data in a user-friendly HTML format for easy accessibility.
+JustTheFAQs is a Node.js-based application designed to generate structured FAQ pages from Wikipedia content. By leveraging the Wikipedia API and OpenAI's GPT-4 API, the program extracts key information, organizes it into concise and engaging question-and-answer pairs, and stores them in a database for dynamic access through a Next.js frontend.
 
 ## Features
 
-- **Wikipedia Integration**: Fetches top-viewed Wikipedia pages and their metadata.
-- **Content Processing**: Extracts content and images from Wikipedia articles.
-- **FAQ Generation**: Uses OpenAI's GPT-4 to create structured FAQs with questions, answers, and related links.
-- **Dynamic Page Creation**: Generates visually appealing HTML FAQ pages with responsive layouts.
-- **Database Management**: Tracks processed pages to avoid duplication and streamline workflow.
-- **Dynamic Pagination**: Fetches additional Wikipedia articles when encountering previously processed pages.
+- **Wikipedia Integration**: Fetches top-viewed Wikipedia pages and their metadata
+- **Content Processing**: Extracts content and images from Wikipedia articles
+- **FAQ Generation**: Uses OpenAI's GPT-4 to create structured FAQs with questions, answers, and related links
+- **Dynamic Page Rendering**: Serves FAQ content directly from the database through Next.js
+- **Database Management**: Tracks processed pages to avoid duplication and streamline workflow
+- **Semantic Search**: Enables natural language searching of FAQs using embeddings
+- **Dynamic Pagination**: Fetches additional Wikipedia articles when encountering previously processed pages
+
+## Project Structure
+```
+.
+├── cache/
+│   └── config.json
+├── lib/
+│   └── db.js
+├── pages/
+│   ├── api/
+│   │   ├── scripts/
+│   │   │   ├── clearDatabase.js
+│   │   │   ├── fetchAndGenerate.js
+│   │   │   ├── fixpages.js
+│   │   │   ├── generateEmbeddings.js
+│   │   │   ├── prebuild.js
+│   │   │   └── testsupa.js
+│   │   ├── faqs.js
+│   │   ├── fetch-and-generate.js
+│   │   ├── hello.ts
+│   │   ├── list-files.js
+│   │   ├── search.js
+│   │   └── searchLocal.js
+│   ├── faqs/
+│   │   └── [slug].js
+│   ├── _app.tsx
+│   ├── fetch-and-generate.js
+│   └── index.js
+├── public/
+│   ├── favicon.ico
+│   ├── replit.svg
+│   └── style.css
+├── .eslintrc.json
+├── .gitignore
+├── .replit
+├── README.md
+├── generated-icon.png
+├── next-env.d.ts
+├── next.config.cjs
+├── package-lock.json
+├── package.json
+├── replit.nix
+└── tsconfig.json
+```
 
 ## How It Works
 
 1. **Fetch Top Wikipedia Pages**
-   - The program fetches the top-viewed Wikipedia articles using the Wikimedia API.
+   - The program fetches the top-viewed Wikipedia articles using the Wikimedia API
 
 2. **Check Existing Data**
-   - For each Wikipedia article, the program checks a PostgreSQL database to see if the page has already been processed.
+   - Each Wikipedia article is checked against the database to avoid duplicate processing
 
 3. **Fetch and Process Content**
-   - Extracts HTML content and images from Wikipedia articles using the Cheerio library.
-   - Truncates content to fit within OpenAI's token limit if necessary.
+   - Extracts HTML content and images from Wikipedia articles using the Cheerio library
+   - Truncates content to fit within OpenAI's token limit if necessary
 
 4. **Generate FAQs**
-   - Sends the content and images to OpenAI's GPT-4 API to create FAQs, complete with subheaders, questions, answers, and cross-links.
+   - Sends the content and images to OpenAI's GPT-4 API to create FAQs
+   - Generates structured data including:
+     - Questions and comprehensive answers
+     - Relevant subheaders
+     - Cross-references to related topics
+     - Associated media links
 
-5. **Save to Database and File System**
-   - Stores the FAQ data in a PostgreSQL database.
-   - Generates an HTML file for each FAQ page, including:
-     - Subheaders
-     - Questions (bolded)
-     - Answers (left-aligned)
-     - Images (right-aligned, if available)
-     - Related links to other FAQ pages
+5. **Store in Database**
+   - Saves all FAQ data to PostgreSQL database
+   - Generates embeddings for semantic search functionality
+   - Maintains relationships between questions and their metadata
 
-6. **Dynamic Pagination**
-   - Fetches the next set of Wikipedia pages if a batch contains already-processed articles.
+6. **Dynamic Page Serving**
+   - Next.js frontend dynamically renders FAQ pages from the database
+   - Enables real-time search and filtering of content
+   - Provides responsive, accessible user interface
 
 ## Installation
 
@@ -44,6 +92,7 @@ JustTheFAQs is a Node.js-based application designed to generate structured FAQ p
 - Node.js (v16 or higher)
 - PostgreSQL database
 - OpenAI API key
+- Supabase account and project
 
 ### Setup
 1. Clone the repository:
@@ -60,36 +109,31 @@ JustTheFAQs is a Node.js-based application designed to generate structured FAQ p
 3. Configure environment variables:
    Create a `.env` file with the following keys:
    ```env
-   DATABASE_URL=your_postgresql_connection_string
+   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
    OPENAI_API_KEY=your_openai_api_key
-   ```
-
-4. Run database migrations (if necessary):
-   ```bash
-   npx migrate up
    ```
 
 ## Usage
 
-### Generate FAQ Pages
-Run the main script to fetch Wikipedia pages, process content, and generate FAQ pages:
+### Generate FAQ Content
+Run the main script to fetch Wikipedia pages and generate FAQ content:
 ```bash
-node scripts/fetchAndGenerate.js
+node pages/api/scripts/fetchAndGenerate.js
 ```
 
-### Customize Number of Pages
-You can specify the number of new FAQ pages to create:
+### Development Server
+Start the development server:
 ```bash
-node scripts/fetchAndGenerate.js --target=50
+npm run dev
 ```
 
-## Output
-- Generated HTML FAQ pages are saved in the `public/data/faqs` directory.
-- Each FAQ page includes:
-  - Subheaders for topic organization
-  - Bolded questions and detailed answers
-  - Related links to other FAQ topics
-  - Thumbnail images, when available
+### Production Deployment
+Build and start the production server:
+```bash
+npm run build
+npm start
+```
 
 ## Database Schema
 
@@ -108,7 +152,6 @@ node scripts/fetchAndGenerate.js --target=50
 |--------------------|--------------------------|----------|---------------------------------------|
 | id                 | INTEGER                 | NO       | Primary key                           |
 | slug               | TEXT                    | NO       | Unique identifier for the FAQ         |
-| file_path          | TEXT                    | NO       | Path to the HTML file                 |
 | human_readable_name| TEXT                    | YES      | User-friendly name of the FAQ         |
 | created_at         | TIMESTAMP               | NO       | Timestamp when the FAQ was created    |
 | **Indexes**        | -                       |          | Primary key: `faq_files_pkey`         |
@@ -143,6 +186,8 @@ This project is licensed under the MIT License. See the LICENSE file for details
 - [Wikimedia API](https://www.mediawiki.org/wiki/API:Main_page)
 - [OpenAI](https://openai.com)
 - [Cheerio](https://cheerio.js.org/) for HTML parsing
+- [Supabase](https://supabase.com) for database management
+- [Next.js](https://nextjs.org) for the frontend framework
 
 ---
 

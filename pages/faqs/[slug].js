@@ -1,26 +1,75 @@
-import fs from "fs";
-import path from "path";
+import { createClient } from '@supabase/supabase-js';
+
+// Create a single supabase client for interacting with your database
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+
+export default function FAQPage({ faq }) {
+  if (!faq) return <div>FAQ not found</div>;
+
+  return (
+    <div>
+      <h1>{faq.title}</h1>
+      {/* Add your FAQ content here */}
+    </div>
+  );
+}
 
 export async function getStaticPaths() {
-  const faqDir = path.join(process.cwd(), "public/data/faqs");
-  const files = fs.readdirSync(faqDir);
+  try {
+    // Fetch all FAQ slugs from Supabase
+    const { data: faqs, error } = await supabase
+      .from('faq_files')
+      .select('slug');
 
-  const paths = files.map((file) => ({
-    params: { slug: file.replace(/\.html$/, "") },
-  }));
+    if (error) {
+      console.error('Error fetching FAQ slugs:', error);
+      return { paths: [], fallback: false };
+    }
 
-  return { paths, fallback: false };
+    // Create paths for each FAQ
+    const paths = faqs.map((faq) => ({
+      params: { slug: faq.slug },
+    }));
+
+    return {
+      paths,
+      fallback: false, // or 'blocking' if you want to enable ISR
+    };
+  } catch (error) {
+    console.error('Error in getStaticPaths:', error);
+    return { paths: [], fallback: false };
+  }
 }
 
 export async function getStaticProps({ params }) {
-  const filePath = path.join(process.cwd(), "public/data/faqs", `${params.slug}.html`);
-  const content = fs.readFileSync(filePath, "utf8");
+  try {
+    // Fetch FAQ data from Supabase using the slug
+    const { data: faq, error } = await supabase
+      .from('raw_faqs')
+      .select('*')
+      .eq('slug', params.slug)
+      .single();
 
-  return { props: { content } };
-}
+    if (error || !faq) {
+      console.error('Error fetching FAQ:', error);
+      return {
+        notFound: true,
+      };
+    }
 
-export default function FAQPage({ content }) {
-  return (
-    <div dangerouslySetInnerHTML={{ __html: content }} />
-  );
+    return {
+      props: {
+        faq,
+      },
+      revalidate: 3600, // Revalidate every hour
+    };
+  } catch (error) {
+    console.error('Error in getStaticProps:', error);
+    return {
+      notFound: true,
+    };
+  }
 }
