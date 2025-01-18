@@ -689,7 +689,3 @@ main(2)
     console.error("[main] An error occurred:", error);
     process.exit(1);
   });
-
-
-// Add this export
-export { main };
