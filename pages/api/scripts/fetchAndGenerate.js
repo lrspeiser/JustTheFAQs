@@ -9,7 +9,6 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-
 // Add this after your imports
 let embedder = null;
 async function initEmbedder() {
@@ -19,21 +18,24 @@ async function initEmbedder() {
   return embedder;
 }
 
-const openai = new OpenAI({
-  apiKey: process.env["OPENAI_API_KEY"],
-});
+export const initClients = () => {
+  const openai = new OpenAI({
+    apiKey: process.env["OPENAI_API_KEY"],
+  });
 
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('[Supabase] Missing environment variables for Supabase URL or Anon Key');
-  process.exit(1);
-}
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('[Supabase] Missing environment variables for Supabase URL or Anon Key');
+  }
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
-console.log('[Supabase] Supabase client initialized.');
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  console.log('[Supabase] Supabase client initialized.');
+
+  return { openai, supabase };
+};
+
 
 // Define tools for OpenAI function calling
 const tools = [
@@ -579,7 +581,9 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
 
 
 // Main process
-const main = async (newPagesTarget = 50) => {
+// Main process
+export const main = async (newPagesTarget = 50, clients) => {
+  const { openai, supabase } = clients;
   console.log("[main] Starting FAQ generation process with enrichment...");
   let processedCount = 0;
   let offset = 0;

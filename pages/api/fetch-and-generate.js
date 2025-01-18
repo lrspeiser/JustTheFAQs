@@ -1,12 +1,12 @@
 // pages/api/fetch-and-generate.js
 
-import { main as generateFAQs } from './scripts/fetchAndGenerate';
+import { main, initClients } from './scripts/fetchAndGenerate';
 
 export const config = {
   api: {
     bodyParser: true,
     responseLimit: false,
-    maxDuration: 60,
+    maxDuration: 300, // Set to 5 minutes to allow for longer processing
   },
 };
 
@@ -18,13 +18,15 @@ export default async function handler(req, res) {
   try {
     console.log('[FetchAndGenerate API] Starting FAQ generation process...');
 
+    // Initialize clients once
+    const clients = initClients();
+
     // Get target from request body or use default
     const target = req.body?.target || 2;
 
-    // Call the main function directly instead of executing as a script
-    await generateFAQs(target);
+    // Call main function with clients
+    await main(target, clients);
 
-    console.log('[FetchAndGenerate API] Generation completed successfully');
     return res.status(200).json({ 
       success: true, 
       message: 'FAQ generation completed successfully'
