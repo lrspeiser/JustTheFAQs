@@ -1,6 +1,7 @@
 // pages/api/fetch-and-generate.js
-
-import { main, initClients } from './scripts/fetchAndGenerate';
+import OpenAI from "openai";
+import { createClient } from '@supabase/supabase-js';
+import { main } from './scripts/fetchAndGenerate';
 
 export const config = {
   api: {
@@ -18,18 +19,25 @@ export default async function handler(req, res) {
   try {
     console.log('[FetchAndGenerate API] Starting FAQ generation process...');
 
-    // Initialize clients and pass directly to main
-    const { openai, supabase } = initClients();
+    // Initialize OpenAI
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
-    if (!openai || !supabase) {
-      throw new Error('Failed to initialize OpenAI or Supabase clients');
+    // Initialize Supabase
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Missing Supabase environment variables');
     }
 
-    // Get target from request body or use default
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    console.log('[Supabase] Supabase client initialized.');
+
     const target = req.body?.target || 2;
 
-    // Pass clients object with both openai and supabase
-    await main(target, { openai, supabase });
+    await main(target, openai, supabase);
 
     return res.status(200).json({ 
       success: true, 

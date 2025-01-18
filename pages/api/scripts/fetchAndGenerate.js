@@ -590,25 +590,23 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
 
 
 // Main process
-// Main process
-export const main = async (newPagesTarget = 50, clients) => {
-  const { openai, supabase } = clients;
+// Main process - just update this function, leave others unchanged
+export async function main(newPagesTarget = 50, openai, supabase) {
+  if (!openai || !supabase) {
+    throw new Error('Missing required clients');
+  }
+
   console.log("[main] Starting FAQ generation process with enrichment...");
   let processedCount = 0;
   let offset = 0;
 
   try {
     // Test Supabase connection
-    try {
-      const { data, error } = await supabase.rpc("test_connection");
-      if (error) {
-        throw new Error(`[Supabase] Connection test failed: ${error.message}`);
-      }
-      console.log('[Supabase] Connection test successful:', data);
-    } catch (error) {
-      console.error(`[Supabase] Connection test failed:`, error.message);
-      return;
+    const { data: connectionTest, error: connectionError } = await supabase.rpc("test_connection");
+    if (connectionError) {
+      throw new Error(`[Supabase] Connection test failed: ${connectionError.message}`);
     }
+    console.log('[Supabase] Connection test successful:', connectionTest);
 
     while (processedCount < newPagesTarget) {
       const titles = await fetchTopWikipediaPages(offset, 50);
@@ -626,7 +624,6 @@ export const main = async (newPagesTarget = 50, clients) => {
         const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         console.log(`[main] Checking existence for slug: "${slug}"`);
 
-        // Check if the slug already exists in the database using Supabase
         try {
           const { data, error } = await supabase
             .from("faq_files")
@@ -647,7 +644,6 @@ export const main = async (newPagesTarget = 50, clients) => {
           continue;
         }
 
-        // Process the title
         console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
 
         const url = `https://en.wikipedia.org/wiki/${title}`;
@@ -685,8 +681,9 @@ export const main = async (newPagesTarget = 50, clients) => {
     console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
   } catch (error) {
     console.error(`[main] Unexpected error:`, error.message);
+    throw error;
   }
-};
+}
 
 
 main(2)
