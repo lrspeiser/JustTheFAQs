@@ -676,7 +676,6 @@ const main = async (newPagesTarget = 50) => {
 };
 
 
-// Replace the existing execution code with this
 main(2)
   .then(() => {
     console.log("[main] Execution finished successfully.");
@@ -684,6 +683,9 @@ main(2)
   })
   .catch(async (error) => {
     console.error("[main] An error occurred:", error);
-    // Pool will clean up automatically
     process.exit(1);
   });
+
+
+// Add this export
+export { main };
