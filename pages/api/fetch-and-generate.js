@@ -6,7 +6,7 @@ export const config = {
   api: {
     bodyParser: true,
     responseLimit: false,
-    maxDuration: 300, // Set to 5 minutes to allow for longer processing
+    maxDuration: 300,
   },
 };
 
@@ -18,14 +18,18 @@ export default async function handler(req, res) {
   try {
     console.log('[FetchAndGenerate API] Starting FAQ generation process...');
 
-    // Initialize clients once
-    const clients = initClients();
+    // Initialize clients and pass directly to main
+    const { openai, supabase } = initClients();
+
+    if (!openai || !supabase) {
+      throw new Error('Failed to initialize OpenAI or Supabase clients');
+    }
 
     // Get target from request body or use default
     const target = req.body?.target || 2;
 
-    // Call main function with clients
-    await main(target, clients);
+    // Pass clients object with both openai and supabase
+    await main(target, { openai, supabase });
 
     return res.status(200).json({ 
       success: true, 

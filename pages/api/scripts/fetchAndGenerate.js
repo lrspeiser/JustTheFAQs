@@ -18,23 +18,32 @@ async function initEmbedder() {
   return embedder;
 }
 
-export const initClients = () => {
-  const openai = new OpenAI({
-    apiKey: process.env["OPENAI_API_KEY"],
-  });
+export function initClients() {
+  try {
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('[Supabase] Missing environment variables for Supabase URL or Anon Key');
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('[Supabase] Missing environment variables for Supabase URL or Anon Key');
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    console.log('[Supabase] Supabase client initialized.');
+
+    if (!openai || !supabase) {
+      throw new Error('Failed to initialize clients');
+    }
+
+    return { openai, supabase };
+  } catch (error) {
+    console.error('Error initializing clients:', error);
+    throw error;
   }
-
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
-  console.log('[Supabase] Supabase client initialized.');
-
-  return { openai, supabase };
-};
+}
 
 
 // Define tools for OpenAI function calling
