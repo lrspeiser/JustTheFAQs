@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import DOMPurify from 'dompurify';
+import LogDisplay from '../lib/LogDisplay';
 
 const FAQEntry = ({ faq }) => {
   const getCategory = () => {
@@ -9,38 +10,31 @@ const FAQEntry = ({ faq }) => {
     return faq.human_readable_name.split('/')[0];
   };
 
-  // Function to properly format Wikipedia-style URLs while preserving case
   const formatWikiSlug = (url) => {
     if (!url) return '';
     try {
-      // Remove '/wiki/' prefix if present
       let cleanUrl = url.replace(/^\/wiki\//, '');
-      // Decode URL-encoded characters
       cleanUrl = decodeURIComponent(cleanUrl);
-      // Replace underscores with hyphens but preserve case
       return cleanUrl
         .replace(/_/g, '-')
-        .replace(/[^\w\-]+/g, '-')  // Replace special chars with hyphens while preserving case
-        .replace(/-+/g, '-')        // Replace multiple hyphens with single hyphen
-        .replace(/^-|-$/g, '');     // Remove leading/trailing hyphens
+        .replace(/[^\w\-]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
     } catch {
       return url.replace(/[^\w\-]+/g, '-');
     }
   };
 
-  // Function to get display name from URL, preserving case
   const formatHumanReadableName = (url) => {
     if (!url) return '';
     try {
-      // Remove '/wiki/' prefix and decode
       let name = url.replace(/^\/wiki\//, '');
       name = decodeURIComponent(name);
-      // Replace underscores with spaces and remove parenthetical content
       return name
         .replace(/_/g, ' ')
         .replace(/\(.*?\)/g, '')
-        .replace(/\u2013/g, '-') // Replace en dash with hyphen
-        .replace(/\u2014/g, '-') // Replace em dash with hyphen
+        .replace(/\u2013/g, '-')
+        .replace(/\u2014/g, '-')
         .trim();
     } catch {
       return url.replace(/_/g, ' ').trim();
@@ -64,7 +58,6 @@ const FAQEntry = ({ faq }) => {
 
   const category = getCategory();
   const relatedTopics = getRelatedTopics();
-  // For category slug, we'll maintain case consistency
   const categorySlug = formatWikiSlug(category);
 
   return (
@@ -128,7 +121,6 @@ const FAQEntry = ({ faq }) => {
   );
 };
 
-
 const TopicLink = ({ name }) => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
   return (
@@ -144,6 +136,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
+  const [showGenerator, setShowGenerator] = useState(false);
 
   useEffect(() => {
     const query = router.query.q;
@@ -204,49 +197,59 @@ export default function Home() {
     <>
       <Head>
         <title>Just the FAQs!</title>
-        <link rel="stylesheet" type="text/css" href="/styles.css" />
       </Head>
       <main className="container">
-        {/* Header */}
         <div className="header">
           <h1>Just the FAQs!</h1>
-        </div>
-
-        {/* Search Box */}
-        <div className="search-box">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="Search FAQs..."
-          />
-          <button onClick={handleSearch} disabled={searching}>
-            {searching ? 'Searching...' : 'Search'}
-          </button>
-        </div>
-
-        {/* Results */}
-        {faqs.length > 0 ? (
-          <div className="results">
-            <h2>Search Results ({faqs.length})</h2>
-            {faqs.map((faq) => (
-              <FAQEntry key={faq.id} faq={faq} />
-            ))}
+          <div className="nav-buttons">
+            <button onClick={() => setShowGenerator(false)} className={!showGenerator ? 'active' : ''}>
+              Search
+            </button>
+            <button onClick={() => setShowGenerator(true)} className={showGenerator ? 'active' : ''}>
+              Generate
+            </button>
           </div>
+        </div>
+
+        {showGenerator ? (
+          <LogDisplay />
         ) : (
-          !searching &&
-          searchQuery && (
-            <div className="no-results">
-              No results found. Try a different search term.
+          <>
+            <div className="search-box">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="Search FAQs..."
+              />
+              <button onClick={handleSearch} disabled={searching}>
+                {searching ? 'Searching...' : 'Search'}
+              </button>
             </div>
-          )
-        )}
 
-        {error && (
-          <div className="error-message">
-            <p>{error}</p>
-          </div>
+            {faqs.length > 0 ? (
+              <div className="results">
+                <h2>Search Results ({faqs.length})</h2>
+                {faqs.map((faq) => (
+                  <FAQEntry key={faq.id} faq={faq} />
+                ))}
+              </div>
+            ) : (
+              !searching &&
+              searchQuery && (
+                <div className="no-results">
+                  No results found. Try a different search term.
+                </div>
+              )
+            )}
+
+            {error && (
+              <div className="error-message">
+                <p>{error}</p>
+              </div>
+            )}
+          </>
         )}
       </main>
     </>

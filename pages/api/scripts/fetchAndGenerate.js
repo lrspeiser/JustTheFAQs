@@ -590,8 +590,8 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
 
 
 // Main process
-// Main process - just update this function, leave others unchanged
-export async function main(newPagesTarget = 50, openai, supabase) {
+export async function main(openai, supabase, newPagesTarget = 50) {
+  // Validate required clients
   if (!openai || !supabase) {
     throw new Error('Missing required clients');
   }
@@ -663,14 +663,14 @@ export async function main(newPagesTarget = 50, openai, supabase) {
 
         const { content, images } = pageData;
         console.log(`[main] Starting enrichment process for "${title}"`);
-        const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
+        const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated, openai, supabase);
 
         if (!success) {
           console.error(`[main] Enrichment process failed for "${title}"`);
           continue;
         }
 
-        await saveMetadata(slug, humanReadableName);
+        await saveMetadata(slug, humanReadableName, supabase);
         console.log(`[main] Successfully processed and enriched FAQs for "${title}"`);
         processedCount++;
       }

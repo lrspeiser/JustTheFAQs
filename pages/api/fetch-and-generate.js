@@ -1,13 +1,9 @@
-// pages/api/fetch-and-generate.js
 import OpenAI from "openai";
 import { createClient } from '@supabase/supabase-js';
-import { main } from './scripts/fetchAndGenerate';
 
 export const config = {
   api: {
     bodyParser: true,
-    responseLimit: false,
-    maxDuration: 300,
   },
 };
 
@@ -17,8 +13,6 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('[FetchAndGenerate API] Starting FAQ generation process...');
-
     // Initialize OpenAI
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -33,17 +27,20 @@ export default async function handler(req, res) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    console.log('[Supabase] Supabase client initialized.');
+
+    // Import main function dynamically
+    const { main } = await import('../scripts/fetchAndGenerate');
 
     const target = req.body?.target || 2;
 
-    await main(target, openai, supabase);
+    // Start the process (don't await it)
+    main(openai, supabase, target);
 
+    // Return success immediately
     return res.status(200).json({ 
       success: true, 
-      message: 'FAQ generation completed successfully'
+      message: 'Generation process started' 
     });
-
   } catch (error) {
     console.error('[FetchAndGenerate API] Error:', error);
     return res.status(500).json({ 
