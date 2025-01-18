@@ -1,27 +1,40 @@
-import { exec } from 'child_process';
+// pages/api/fetch-and-generate.js
 
+import { main as generateFAQs } from './scripts/fetchAndGenerate';
 
-export default function handler(req, res) {
+export const config = {
+  api: {
+    bodyParser: true,
+    responseLimit: false,
+    maxDuration: 60,
+  },
+};
+
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const scriptPath = './pages/api/scripts/fetchAndGenerate.js';
- // Adjust the path as needed
-  console.log('[FetchAndGenerate API] Starting the script:', scriptPath);
+  try {
+    console.log('[FetchAndGenerate API] Starting FAQ generation process...');
 
-  exec(`node ${scriptPath}`, (error, stdout, stderr) => {
-    if (error) {
-      console.error('[FetchAndGenerate API] Error:', error.message);
-      return res.status(500).json({ error: error.message });
-    }
+    // Get target from request body or use default
+    const target = req.body?.target || 2;
 
-    if (stderr) {
-      console.error('[FetchAndGenerate API] Stderr:', stderr);
-      return res.status(500).json({ error: stderr });
-    }
+    // Call the main function directly instead of executing as a script
+    await generateFAQs(target);
 
-    console.log('[FetchAndGenerate API] Stdout:', stdout);
-    res.status(200).json({ message: 'Script executed successfully.', details: stdout });
-  });
+    console.log('[FetchAndGenerate API] Generation completed successfully');
+    return res.status(200).json({ 
+      success: true, 
+      message: 'FAQ generation completed successfully'
+    });
+
+  } catch (error) {
+    console.error('[FetchAndGenerate API] Error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Internal server error'
+    });
+  }
 }
