@@ -91,7 +91,7 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "Cross-links for the FAQ derived from the section.",
+                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame"
                 },
                 media_links: {
                   type: "array",
