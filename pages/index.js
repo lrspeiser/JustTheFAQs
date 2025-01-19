@@ -4,122 +4,134 @@ import Head from 'next/head';
 import DOMPurify from 'dompurify';
 import LogDisplay from '../lib/LogDisplay';
 
-const FAQEntry = ({ faq }) => {
-  const getCategory = () => {
-    if (!faq.human_readable_name) return 'General';
-    return faq.human_readable_name.split('/')[0];
-  };
+      const FAQEntry = ({ faq }) => {
+        // Add debug logging
+        console.log('FAQ Data Received:', {
+          id: faq.id,
+          human_readable_name: faq.human_readable_name,
+          page_slug: faq.page_slug,
+          title: faq.title,
+          question: faq.question,
+          subheader: faq.subheader,
+          faq_file_id: faq.faq_file_id // Check if we're getting this
+        });
 
-  const formatWikiSlug = (url) => {
-    if (!url) return '';
-    try {
-      let cleanUrl = url.replace(/^\/wiki\//, '');
-      cleanUrl = decodeURIComponent(cleanUrl);
-      return cleanUrl
-        .replace(/_/g, '-')
-        .replace(/[^\w\-]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
-    } catch {
-      return url.replace(/[^\w\-]+/g, '-');
-    }
-  };
+        const getPageName = () => {
+          console.log('getPageName called with:', {
+            human_readable_name: faq.human_readable_name,
+            title: faq.title
+          });
+          return faq.human_readable_name || 'Uncategorized';
+        };
 
-  const formatHumanReadableName = (url) => {
-    if (!url) return '';
-    try {
-      let name = url.replace(/^\/wiki\//, '');
-      name = decodeURIComponent(name);
-      return name
-        .replace(/_/g, ' ')
-        .replace(/\(.*?\)/g, '')
-        .replace(/\u2013/g, '-')
-        .replace(/\u2014/g, '-')
-        .trim();
-    } catch {
-      return url.replace(/_/g, ' ').trim();
-    }
-  };
 
-  const getRelatedTopics = () => {
-    if (!faq.cross_links) return [];
-    try {
-      if (typeof faq.cross_links === 'string') {
-        return faq.cross_links
-          .split(',')
-          .map(link => link.trim())
-          .filter(Boolean);
-      }
-      return faq.cross_links;
-    } catch {
-      return [];
-    }
-  };
+        const formatWikiSlug = (url) => {
+          if (!url) return '';
+          try {
+            let cleanUrl = url.replace(/^\/wiki\//, '');
+            cleanUrl = decodeURIComponent(cleanUrl);
+            return cleanUrl
+              .replace(/_/g, '-')
+              .replace(/[^\w\-]+/g, '-')
+              .replace(/-+/g, '-')
+              .replace(/^-|-$/g, '');
+          } catch {
+            return url.replace(/[^\w\-]+/g, '-');
+          }
+        };
 
-  const category = getCategory();
-  const relatedTopics = getRelatedTopics();
-  const categorySlug = formatWikiSlug(category);
+        const formatHumanReadableName = (url) => {
+          if (!url) return '';
+          try {
+            let name = url.replace(/^\/wiki\//, '');
+            name = decodeURIComponent(name);
+            return name
+              .replace(/_/g, ' ')
+              .replace(/\(.*?\)/g, '')
+              .replace(/\u2013/g, '-')
+              .replace(/\u2014/g, '-')
+              .trim();
+          } catch {
+            return url.replace(/_/g, ' ').trim();
+          }
+        };
 
-  return (
-    <article className="faq-entry">
-      <header className="entry-header">
-        <a href={`/${categorySlug}`} className="page-name">
-          {category}
-        </a>
-        {faq.debug_info && process.env.NODE_ENV === 'development' && (
-          <div className="debug-info">
-            <small>
-              Match: {faq.debug_info.has_text_match ? 'Text' : 'Semantic'} (
-              Score: {Math.round(faq.debug_info.final_score * 100)}%)
-            </small>
-          </div>
-        )}
-      </header>
+        const getRelatedTopics = () => {
+          if (!faq.cross_links) return [];
+          try {
+            if (typeof faq.cross_links === 'string') {
+              return faq.cross_links
+                .split(',')
+                .map(link => link.trim())
+                .filter(Boolean);
+            }
+            return faq.cross_links;
+          } catch {
+            return [];
+          }
+        };
 
-      {faq.subheader && <div className="subheader">{faq.subheader}</div>}
+        const relatedTopics = getRelatedTopics();
 
-      <div className="question-with-image">
-        <h2 className="question">Question: {faq.question}</h2>
-        {faq.media_link && (
-          <div className="image">
-            <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
-          </div>
-        )}
-      </div>
+        return (
+          <article className="faq-entry">
+            <header className="entry-header">
+              <a href={`/${faq.page_slug || ''}`} className="page-name">
+                {getPageName()}
+              </a>
+              {faq.similarity > 0 && (
+                <div className="debug-info">
+                  <small>
+                    Match Score: {Math.round(faq.similarity * 100)}%
+                  </small>
+                </div>
+              )}
+            </header>
 
-      <div className="answer-container">
-        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer) }}></div>
-      </div>
+            {faq.subheader && <div className="subheader">{faq.subheader}</div>}
 
-      {(relatedTopics.length > 0 || category) && (
-        <div className="related-links">
-          <span>Related Pages:</span>
-          <ul>
-            {relatedTopics.map((topic, index) => {
-              const displayName = formatHumanReadableName(topic);
-              const slug = formatWikiSlug(topic);
+            <div className="question-with-image">
+              <h2 className="question">Question: {faq.question}</h2>
+              {faq.media_link && (
+                <div className="image">
+                  <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
+                </div>
+              )}
+            </div>
 
-              if (!displayName || !slug) return null;
+            <div className="answer-container">
+              <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer) }}></div>
+            </div>
 
-              return (
-                <li key={index}>
-                  <a
-                    href={`/${slug}`}
-                    className="related-topic-link"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {displayName}
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
-    </article>
-  );
-};
+            {relatedTopics.length > 0 && (
+              <div className="related-links">
+                <span>Related Pages:</span>
+                <ul>
+                  {relatedTopics.map((topic, index) => {
+                    const displayName = formatHumanReadableName(topic);
+                    const slug = formatWikiSlug(topic);
+
+                    if (!displayName || !slug) return null;
+
+                    return (
+                      <li key={index}>
+                        <a
+                          href={`/${slug}`}
+                          className="related-topic-link"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {displayName}
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </article>
+        );
+      };
 
 const TopicLink = ({ name }) => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -136,7 +148,6 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
-  const [showGenerator, setShowGenerator] = useState(false);
 
   useEffect(() => {
     const query = router.query.q;
@@ -149,10 +160,12 @@ export default function Home() {
   const performSearch = async (query) => {
     setSearching(true);
     try {
+      console.log("[Search] 🔍 Sending search request for:", query);
+
       const response = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query })
       });
 
       if (!response.ok) {
@@ -160,9 +173,21 @@ export default function Home() {
       }
 
       const data = await response.json();
-      console.log('[Search Results] Data received:', data);
+      console.log('[Search Results] Full response data:', data);
+
+      // Log each FAQ's key fields
+      data.forEach((faq, index) => {
+        console.log(`FAQ ${index + 1}:`, {
+          id: faq.id,
+          human_readable_name: faq.human_readable_name,
+          page_slug: faq.page_slug,
+          faq_file_id: faq.faq_file_id
+        });
+      });
+
       setFaqs(data);
 
+      // Update URL query string
       router.push(
         {
           pathname: router.pathname,
@@ -189,10 +214,6 @@ export default function Home() {
     performSearch(searchQuery);
   };
 
-  useEffect(() => {
-    console.log('[FAQ Component] Current FAQs:', faqs);
-  }, [faqs]);
-
   return (
     <>
       <Head>
@@ -201,55 +222,41 @@ export default function Home() {
       <main className="container">
         <div className="header">
           <h1>Just the FAQs!</h1>
-          <div className="nav-buttons">
-            <button onClick={() => setShowGenerator(false)} className={!showGenerator ? 'active' : ''}>
-              Search
-            </button>
-            <button onClick={() => setShowGenerator(true)} className={showGenerator ? 'active' : ''}>
-              Generate
-            </button>
-          </div>
         </div>
 
-        {showGenerator ? (
-          <LogDisplay />
+        <div className="search-box">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            placeholder="Search FAQs..."
+          />
+          <button onClick={handleSearch} disabled={searching}>
+            {searching ? 'Searching...' : 'Search'}
+          </button>
+        </div>
+
+        {faqs.length > 0 ? (
+          <div className="results">
+            <h2>Search Results ({faqs.length})</h2>
+            {faqs.map((faq) => (
+              <FAQEntry key={faq.id} faq={faq} />
+            ))}
+          </div>
         ) : (
-          <>
-            <div className="search-box">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                placeholder="Search FAQs..."
-              />
-              <button onClick={handleSearch} disabled={searching}>
-                {searching ? 'Searching...' : 'Search'}
-              </button>
+          !searching &&
+          searchQuery && (
+            <div className="no-results">
+              No results found. Try a different search term.
             </div>
+          )
+        )}
 
-            {faqs.length > 0 ? (
-              <div className="results">
-                <h2>Search Results ({faqs.length})</h2>
-                {faqs.map((faq) => (
-                  <FAQEntry key={faq.id} faq={faq} />
-                ))}
-              </div>
-            ) : (
-              !searching &&
-              searchQuery && (
-                <div className="no-results">
-                  No results found. Try a different search term.
-                </div>
-              )
-            )}
-
-            {error && (
-              <div className="error-message">
-                <p>{error}</p>
-              </div>
-            )}
-          </>
+        {error && (
+          <div className="error-message">
+            <p>{error}</p>
+          </div>
         )}
       </main>
     </>

@@ -1,55 +1,38 @@
-import pkg from "pg";
-const { Client } = pkg;
+import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
+dotenv.config();
 
-// Database connection setup
-const client = new Client({
-  connectionString: process.env.DATABASE_URL,
-});
+// Initialize Supabase client
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
 const clearDatabase = async () => {
   try {
-    await client.connect();
-    console.log("[DB] Connected to database.");
+    console.log("[DB] Connecting to Supabase...");
 
-    // Begin transaction
-    await client.query('BEGIN');
+    // Delete from `faq_embeddings` (dependent on `raw_faqs`)
+    console.log("[DB] Clearing `faq_embeddings` table...");
+    const { error: embeddingsError } = await supabase.from("faq_embeddings").delete().neq("id", 0);
+    if (embeddingsError) throw new Error(`[DB] Failed to clear \`faq_embeddings\`: ${embeddingsError.message}`);
+    console.log("[DB] Cleared `faq_embeddings` table.");
 
-    try {
-      // Clear the faq_embeddings table first (because it depends on raw_faqs)
-      await client.query("DELETE FROM faq_embeddings");
-      console.log("[DB] Cleared `faq_embeddings` table.");
-      await client.query("ALTER SEQUENCE faq_embeddings_id_seq RESTART WITH 1");
-      console.log("[DB] Reset primary key sequence for `faq_embeddings`.");
+    // Delete from `raw_faqs`
+    console.log("[DB] Clearing `raw_faqs` table...");
+    const { error: faqsError } = await supabase.from("raw_faqs").delete().neq("id", 0);
+    if (faqsError) throw new Error(`[DB] Failed to clear \`raw_faqs\`: ${faqsError.message}`);
+    console.log("[DB] Cleared `raw_faqs` table.");
 
-      // Clear the raw_faqs table
-      await client.query("DELETE FROM raw_faqs");
-      console.log("[DB] Cleared `raw_faqs` table.");
-      await client.query("ALTER SEQUENCE raw_faqs_id_seq RESTART WITH 1");
-      console.log("[DB] Reset primary key sequence for `raw_faqs`.");
+    // Delete from `faq_files`
+    console.log("[DB] Clearing `faq_files` table...");
+    const { error: filesError } = await supabase.from("faq_files").delete().neq("id", 0);
+    if (filesError) throw new Error(`[DB] Failed to clear \`faq_files\`: ${filesError.message}`);
+    console.log("[DB] Cleared `faq_files` table.");
 
-      // Clear the faq_files table
-      await client.query("DELETE FROM faq_files");
-      console.log("[DB] Cleared `faq_files` table.");
-      await client.query("ALTER SEQUENCE faq_files_id_seq RESTART WITH 1");
-      console.log("[DB] Reset primary key sequence for `faq_files`.");
+    console.log("[DB] ✅ All tables cleared successfully.");
 
-      // Commit transaction
-      await client.query('COMMIT');
-      console.log("[DB] All tables cleared and sequences reset successfully.");
-
-    } catch (error) {
-      // Rollback transaction on error
-      await client.query('ROLLBACK');
-      console.error("[DB] Error during table clearing:", error.message);
-      throw error;
-    }
-
-  } catch (err) {
-    console.error("[DB] Error clearing database:", err.message);
-  } finally {
-    await client.end();
-    console.log("[DB] Connection closed.");
+  } catch (error) {
+    console.error("[DB] ❌ Error during database clearing:", error.message);
   }
 };
 
+// Run the script
 clearDatabase();

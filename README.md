@@ -14,47 +14,27 @@ JustTheFAQs is a Node.js-based application designed to generate structured FAQ p
 
 ## Project Structure
 ```
-.
-├── cache/
-│   └── config.json
 ├── lib/
-│   └── db.js
+│   ├── LogDisplay.js   # Used in the frontend display of logs.
+│   └── db.js           # Likely interacts with Supabase, required for data storage.
 ├── pages/
 │   ├── api/
 │   │   ├── scripts/
-│   │   │   ├── clearDatabase.js
-│   │   │   ├── fetchAndGenerate.js
-│   │   │   ├── fixpages.js
-│   │   │   ├── generateEmbeddings.js
-│   │   │   ├── prebuild.js
-│   │   │   └── testsupa.js
-│   │   ├── faqs.js
-│   │   ├── fetch-and-generate.js
-│   │   ├── hello.ts
-│   │   ├── list-files.js
-│   │   ├── search.js
-│   │   └── searchLocal.js
-│   ├── faqs/
-│   │   └── [slug].js
-│   ├── _app.tsx
-│   ├── fetch-and-generate.js
-│   └── index.js
-├── public/
-│   ├── favicon.ico
-│   ├── replit.svg
-│   └── style.css
-├── .eslintrc.json
-├── .gitignore
-├── .replit
-├── README.md
-├── generated-icon.png
-├── next-env.d.ts
-├── next.config.cjs
-├── package-lock.json
-├── package.json
-├── replit.nix
-└── tsconfig.json
+│   │   │   ├── clearDatabase.js          # Clears database, necessary for maintenance.
+│   │   │   ├── fetchAndGenerate.js       # Core script for fetching and generating FAQs.
+│   │   │   ├── generateEmbeddings.js     # Essential for embedding generation.
+│   │   ├── faqs.js                       # API route for FAQs.
+│   │   ├── fetch-and-generate.js         # API route that invokes fetchAndGenerate.js.
+│   │   ├── search.js                     # API route for searching FAQs.
+functionality.
+│   ├── fetch-and-generate.js              # API or frontend script to trigger fetchAndGenerate.
+│   ├── _app.tsx                           # Next.js app-level component.
+│   ├── index.js                           # Entry point for the frontend.
+├── stream.js                               # Likely handles streaming of data.
+
 ```
+
+
 
 ## How It Works
 
@@ -137,44 +117,41 @@ npm start
 
 ## Database Schema
 
-### `faq_embeddings`
-| Column    | Data Type     | Nullable | Description                                         |
-|-----------|---------------|----------|-----------------------------------------------------|
-| id        | INTEGER       | NO       | Primary key                                        |
-| faq_id    | INTEGER       | YES      | Foreign key referencing `raw_faqs(id)`            |
-| question  | TEXT          | YES      | The FAQ question                                   |
-| embedding | VECTOR(384)   | YES      | Embedding vector for similarity search            |
-| **Indexes**   | -             |          | Primary key: `faq_embeddings_pkey`                |
-|           |               |          | Embedding index: `faq_embeddings_embedding_idx`    |
-
-### `faq_files`
-| Column             | Data Type                | Nullable | Description                           |
-|--------------------|--------------------------|----------|---------------------------------------|
-| id                 | INTEGER                 | NO       | Primary key                           |
-| slug               | TEXT                    | NO       | Unique identifier for the FAQ         |
-| human_readable_name| TEXT                    | YES      | User-friendly name of the FAQ         |
-| created_at         | TIMESTAMP               | NO       | Timestamp when the FAQ was created    |
-| **Indexes**        | -                       |          | Primary key: `faq_files_pkey`         |
-|                    |                         |          | Unique constraint: `faq_files_slug_key`|
+## Database Schema
 
 ### `raw_faqs`
-| Column             | Data Type                | Nullable | Description                           |
-|--------------------|--------------------------|----------|---------------------------------------|
-| id                 | INTEGER                 | NO       | Primary key                           |
-| url                | TEXT                    | NO       | Original URL of the FAQ source        |
-| title              | TEXT                    | NO       | Title of the FAQ                      |
-| timestamp          | TIMESTAMP               | NO       | Timestamp when the FAQ was created    |
-| question           | TEXT                    | NO       | The FAQ question                      |
-| answer             | TEXT                    | NO       | The FAQ answer                        |
-| media_link         | TEXT                    | YES      | Link to associated media              |
-| human_readable_name| TEXT                    | YES      | User-friendly FAQ title               |
-| last_updated       | TIMESTAMP               | YES      | Timestamp of last update              |
-| subheader          | TEXT                    | YES      | Section subheader                     |
-| cross_link         | TEXT                    | YES      | Related FAQ links                     |
-| thumbnail_url      | TEXT                    | YES      | URL of the thumbnail image            |
-| image_urls         | TEXT                    | YES      | Additional image URLs                 |
-| **Indexes**        | -                       |          | Primary key: `raw_faqs_pkey`          |
-| **Referenced by**  | -                       |          | Foreign key: `faq_embeddings.faq_id` |
+| Column             | Data Type                | Description                           |
+|--------------------|--------------------------|---------------------------------------|
+| id                 | INTEGER                 | Primary key                           |
+| url                | TEXT                    | Original URL of the FAQ source        |
+| title              | TEXT                    | Title of the FAQ                      |
+| timestamp          | TIMESTAMP               | Timestamp when the FAQ was created    |
+| question           | TEXT                    | The FAQ question                      |
+| answer             | TEXT                    | The FAQ answer                        |
+| media_link         | TEXT                    | Link to associated media              |
+| human_readable_name| TEXT                    | User-friendly FAQ title               |
+| last_updated       | TIMESTAMP               | Last update timestamp                 |
+| subheader          | TEXT                    | Section subheader                     |
+| cross_link         | TEXT                    | Related FAQ links                     |
+| thumbnail_url      | TEXT                    | Not currently in use.                 |
+| image_urls         | TEXT                    | Additional image URLs                 |
+
+### `faq_files`
+| Column             | Data Type                | Description                           |
+|--------------------|--------------------------|---------------------------------------|
+| id                 | INTEGER                 | Primary key                           |
+| slug               | TEXT                    | Unique identifier for the FAQ         |
+| file_path          | TEXT                    | Path to the FAQ file                  |
+| created_at         | TIMESTAMP               | Creation timestamp                    |
+| human_readable_name| TEXT                    | User-friendly name of the FAQ         |
+
+### `faq_embeddings`
+| Column             | Data Type                | Description                           |
+|--------------------|--------------------------|---------------------------------------|
+| id                 | INTEGER                 | Primary key                           |
+| faq_id             | INTEGER                 | Foreign key referencing raw_faqs(id)  |
+| question           | TEXT                    | The FAQ question                      |
+| embedding          | VECTOR                  | Embedding vector for similarity search |
 
 ## Contributing
 Contributions are welcome! Please submit a pull request or open an issue on the GitHub repository.

@@ -11,25 +11,35 @@ export default async function handler(req, res) {
 
   try {
     await client.connect();
-    console.log("[API] Connected to the database.");
+    console.log("[API/faqs.js] ✅ Connected to the database.");
 
     const query = `
-      SELECT id, question, answer 
+      SELECT id, question, answer, thumbnail_url, cross_link 
       FROM raw_faqs 
       ORDER BY created_at DESC 
       LIMIT 10;
     `;
-    console.log("[API] Executing query:", query);
+    console.log("[API/faqs.js] 🔍 Executing query:", query);
 
     const result = await client.query(query);
-    console.log("[API] Query result:", result.rows);
+    console.log("[API/faqs.js] 📊 Query result:", result.rows);
 
-    res.status(200).json(result.rows);
+    // 🔹 Format results to include cross_links as an array
+    const formattedResults = result.rows.map(faq => ({
+      id: faq.id,
+      question: faq.question,
+      answer: faq.answer,
+      thumbnail_url: faq.thumbnail_url || "", // Ensure we always return a string
+      cross_links: faq.cross_link ? faq.cross_link.split(",") : [] // Convert CSV string to array
+    }));
+
+    console.log("[API/faqs.js] ✅ Returning formatted results.");
+    res.status(200).json(formattedResults);
   } catch (error) {
-    console.error("[API] Error fetching FAQs:", error);
+    console.error("[API/faqs.js] ❌ Error fetching FAQs:", error);
     res.status(500).json({ error: "Internal Server Error" });
   } finally {
     await client.end();
-    console.log("[API] Database connection closed.");
+    console.log("[API/faqs.js] 🔴 Database connection closed.");
   }
 }

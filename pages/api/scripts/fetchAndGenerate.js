@@ -3,47 +3,68 @@
 import axios from "axios";
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
-import { pipeline } from '@xenova/transformers';
-import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
-
+import { pipeline } from "@xenova/transformers";
+import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
 dotenv.config();
 
-// Add this after your imports
+console.log("Environment Variables:");
+console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "Loaded" : "Missing");
+console.log("NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL || "Not Set");
+console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? "Loaded" : "Missing");
+
+let globalSupabase = null; // Ensure single instance
+
 let embedder = null;
 async function initEmbedder() {
   if (!embedder) {
-    embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    console.log("[initEmbedder] Initializing embedding model...");
+    embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+    console.log("[initEmbedder] Embedder initialized.");
   }
   return embedder;
 }
 
+
 export function initClients() {
+  console.log("[initClients] Initializing clients...");
+
+  if (globalSupabase) {
+    console.log("[initClients] Using cached Supabase client.");
+    return { openai: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }), supabase: globalSupabase };
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error("[initClients] ❌ Missing Supabase environment variables");
+    return { openai: null, supabase: null };
+  }
+
+  console.log("[initClients] Supabase URL:", supabaseUrl);
+  console.log("[initClients] Supabase Anon Key:", supabaseAnonKey ? "✅ Loaded" : "❌ Missing");
+
   try {
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
+    globalSupabase = createClient(supabaseUrl, supabaseAnonKey);
+    console.log("[initClients] ✅ Supabase client successfully initialized!");
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('[Supabase] Missing environment variables for Supabase URL or Anon Key');
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    console.log('[Supabase] Supabase client initialized.');
-
-    if (!openai || !supabase) {
-      throw new Error('Failed to initialize clients');
-    }
-
-    return { openai, supabase };
+    return { openai: new OpenAI({ apiKey: process.env.OPENAI_API_KEY }), supabase: globalSupabase };
   } catch (error) {
-    console.error('Error initializing clients:', error);
-    throw error;
+    console.error("[initClients] ❌ Failed to initialize Supabase:", error.message);
+    return { openai: null, supabase: null };
   }
 }
+
+// Initialize clients
+const { openai, supabase } = initClients();
+
+if (!openai || !supabase) {
+  console.error("[startProcess] ❌ One or more clients failed to initialize.");
+  process.exit(1);
+}
+
+console.log("[startProcess] ✅ Clients initialized. Starting main process...");
 
 
 // Define tools for OpenAI function calling
@@ -158,24 +179,53 @@ const fetchWikipediaMetadata = async (title) => {
   }
 };
 
-const saveMetadata = async (slug, humanReadableName) => {
-  // Prepare metadata without file path
+const saveMetadata = async (slug, humanReadableName, supabase) => {
   const data = {
     slug,
     human_readable_name: humanReadableName,
+    file_path: "",
     created_at: new Date().toISOString(),
   };
 
-  console.log("[saveMetadata] Saving metadata with values:", data);
+  console.log("[saveMetadata] Saving metadata:", JSON.stringify(data, null, 2));
 
   try {
-    // Insert the metadata into Supabase
-    await insertDataToSupabase('faq_files', data);
-    console.log(`[saveMetadata] Metadata saved for: ${slug}`);
+    const { data: existingEntry, error: checkError } = await supabase
+      .from("faq_files")
+      .select("id, slug")
+      .eq("slug", slug)
+      .limit(1)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("[saveMetadata] ❌ Error checking for existing slug:", checkError.message);
+      return null;
+    }
+
+    if (existingEntry) {
+      console.log(`[saveMetadata] 🔹 Found existing entry for "${slug}"`);
+      return existingEntry.id;
+    }
+
+    const { data: newEntry, error } = await supabase
+      .from("faq_files")
+      .insert([data])
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error("[saveMetadata] ❌ Error inserting metadata:", error.message);
+      return null;
+    }
+
+    console.log(`[saveMetadata] ✅ Successfully saved: ${slug}, ID: ${newEntry.id}`);
+    return newEntry.id;
   } catch (error) {
-    console.error("[saveMetadata] Error saving metadata:", error.message);
+    console.error("[saveMetadata] ❌ Unexpected error:", error.message);
+    return null;
   }
 };
+
 
 
 
@@ -397,7 +447,7 @@ const fetchWikipediaPage = async (title) => {
   }
 };
 
-const insertDataToSupabase = async (tableName, data) => {
+async function insertDataToSupabase(tableName, data) {
   try {
     console.log(`[Supabase] Attempting to insert into ${tableName}:`, data);
     const { data: insertedData, error } = await supabase.from(tableName).insert([data]);
@@ -411,93 +461,91 @@ const insertDataToSupabase = async (tableName, data) => {
     console.error(`[Supabase] Unexpected error during insert into ${tableName}:`, error.message);
     throw error;
   }
-};
+}
 
 
-const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
-  if (!faqs || !faqs.length) {
-    console.error("[saveStructuredFAQ] No FAQs to save.");
-    return;
-  }
+  const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
+    if (!faqs || !faqs.length) {
+      console.error("[saveStructuredFAQ] No FAQs to save.");
+      return;
+    }
 
-  console.log("[saveStructuredFAQ] Starting process for:", {
-    title,
-    faqCount: faqs.length,
-    firstQuestion: faqs[0]?.question
-  });
+    // First, ensure we have the FAQ file entry and get its ID
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const faqFileId = await saveMetadata(slug, humanReadableName, supabase);
 
-  console.log("[saveStructuredFAQ] Processing thumbnails...");
-  const faqWithThumbnails = await Promise.all(
-    faqs.map(async (faq, index) => {
-      try {
-        console.log(`[saveStructuredFAQ] Processing FAQ ${index + 1}:`, {
-          question: faq.question,
-          mediaLinksCount: faq.media_links?.length || 0
-        });
+    if (!faqFileId) {
+      console.error("[saveStructuredFAQ] Failed to get or create FAQ file entry.");
+      return;
+    }
 
-        const mediaLink = faq.media_links?.[0] || null;
-        console.log(`[saveStructuredFAQ] Media link for FAQ ${index + 1}:`, mediaLink);
+    console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
 
-        let thumbnailURL = null;
-        if (mediaLink) {
-          try {
-            thumbnailURL = await fetchThumbnailURL(mediaLink, 480);
-            console.log(`[saveStructuredFAQ] Generated thumbnail for FAQ ${index + 1}:`, thumbnailURL);
-          } catch (thumbnailError) {
-            console.error(`[saveStructuredFAQ] Thumbnail generation error for FAQ ${index + 1}:`, thumbnailError);
+    // Process FAQs with thumbnails
+    const faqWithThumbnails = await Promise.all(
+      faqs.map(async (faq, index) => {
+        try {
+          const mediaLink = faq.media_links?.[0] || null;
+          let thumbnailURL = null;
+          if (mediaLink) {
+            try {
+              thumbnailURL = await fetchThumbnailURL(mediaLink, 480);
+            } catch (thumbnailError) {
+              console.error(`[saveStructuredFAQ] Thumbnail error for FAQ ${index + 1}:`, thumbnailError);
+            }
           }
+
+          return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
+        } catch (faqError) {
+          console.error(`[saveStructuredFAQ] Error processing FAQ ${index + 1}:`, faqError);
+          return { ...faq, thumbnailURL: null, mediaLinks: [] };
+        }
+      })
+    );
+
+    // Save FAQs with the faq_file_id reference
+    for (const faq of faqWithThumbnails) {
+      const data = {
+        faq_file_id: faqFileId,  // Add the foreign key reference
+        url,
+        title,
+        human_readable_name: humanReadableName,
+        last_updated: lastUpdated,
+        subheader: faq.subheader || null,
+        question: faq.question,
+        answer: faq.answer,
+        cross_link: faq.cross_links ? faq.cross_links.join(", ") : null,
+        media_link: faq.thumbnailURL || null,
+        image_urls: faq.mediaLinks ? faq.mediaLinks.join(", ") : null,
+      };
+
+      try {
+        // Save FAQ to Supabase with the faq_file_id
+        const { data: savedFaq, error: faqError } = await insertDataToSupabase('raw_faqs', data);
+
+        if (faqError) {
+          console.error(`[saveStructuredFAQ] Error saving FAQ:`, faqError);
+          continue;
         }
 
-        return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
-      } catch (faqError) {
-        console.error(`[saveStructuredFAQ] Error processing FAQ ${index + 1}:`, faqError);
-        return { ...faq, thumbnailURL: null, mediaLinks: [] };
+        // Generate and save embeddings with the correct faq_id
+        const localEmbedder = await initEmbedder();
+        const output = await localEmbedder(faq.question, { pooling: 'mean', normalize: true });
+        const embedding = Array.from(output.data);
+
+        const embeddingData = {
+          faq_id: savedFaq.id,
+          question: faq.question,
+          embedding,
+        };
+
+        await insertDataToSupabase('faq_embeddings', embeddingData);
+        console.log(`[saveStructuredFAQ] Saved FAQ and embedding for question: ${faq.question}`);
+      } catch (error) {
+        console.error(`[saveStructuredFAQ] Error saving FAQ: ${faq.question}`, error.message);
       }
-    })
-  );
-
-  console.log("[saveStructuredFAQ] Starting database insertions...");
-
-  for (const faq of faqWithThumbnails) {
-    const data = {
-      url,
-      title,
-      human_readable_name: humanReadableName,
-      last_updated: lastUpdated,
-      subheader: faq.subheader || null,
-      question: faq.question,
-      answer: faq.answer,
-      cross_link: faq.cross_links ? faq.cross_links.join(", ") : null,
-      media_link: faq.thumbnailURL || null,
-      image_urls: faq.mediaLinks ? faq.mediaLinks.join(", ") : null,
-    };
-
-    console.log(`[saveStructuredFAQ] Saving FAQ: ${faq.question}`);
-
-    try {
-      // Save FAQ to Supabase
-      await insertDataToSupabase('raw_faqs', data);
-      console.log(`[saveStructuredFAQ] FAQ saved for question: ${faq.question}`);
-
-      // Generate and save embeddings
-      console.log(`[saveStructuredFAQ] Generating embedding for FAQ question: ${faq.question}`);
-      const localEmbedder = await initEmbedder();
-      const output = await localEmbedder(faq.question, { pooling: 'mean', normalize: true });
-      const embedding = Array.from(output.data);
-
-      // Save embedding to Supabase
-      const embeddingData = {
-        faq_id: faq.id, // Replace with actual ID if needed
-        question: faq.question,
-        embedding,
-      };
-      await insertDataToSupabase('faq_embeddings', embeddingData);
-      console.log(`[saveStructuredFAQ] Embedding saved for FAQ question: ${faq.question}`);
-    } catch (error) {
-      console.error(`[saveStructuredFAQ] Error saving FAQ: ${faq.question}`, error.message);
     }
-  }
-};
+  };
 
 
 // Add this utility function to handle cross-links properly
@@ -588,25 +636,30 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
 
 
 
-
-// Main process
 export async function main(openai, supabase, newPagesTarget = 50) {
-  // Validate required clients
+  console.log("[main] Verifying received clients...");
+  console.log("[main] OpenAI client:", openai ? "✅ Initialized" : "❌ Missing");
+  console.log("[main] Supabase client:", supabase ? "✅ Initialized" : "❌ Missing");
+
   if (!openai || !supabase) {
-    throw new Error('Missing required clients');
+    console.error("[main] ❌ Missing required clients. Exiting...");
+    throw new Error("[main] Missing required clients");
   }
 
-  console.log("[main] Starting FAQ generation process with enrichment...");
+  console.log("[main] Starting FAQ generation process...");
   let processedCount = 0;
   let offset = 0;
 
   try {
-    // Test Supabase connection
+    console.log("[main] Checking Supabase client initialization...");
+    console.log("[Supabase] Client Instance:", supabase ? "Initialized" : "❌ Not Initialized");
+
+    console.log("[main] Testing Supabase connection...");
     const { data: connectionTest, error: connectionError } = await supabase.rpc("test_connection");
     if (connectionError) {
       throw new Error(`[Supabase] Connection test failed: ${connectionError.message}`);
     }
-    console.log('[Supabase] Connection test successful:', connectionTest);
+    console.log("[Supabase] Connection test successful:", connectionTest);
 
     while (processedCount < newPagesTarget) {
       const titles = await fetchTopWikipediaPages(offset, 50);
@@ -616,7 +669,7 @@ export async function main(openai, supabase, newPagesTarget = 50) {
       }
 
       for (const title of titles) {
-        if (processedCount >= newPagesTarget) {
+        if (processedCount >= newPagesTarget) {  // 🔹 Ensure we stop exactly at 2
           console.log(`[main] Processed ${processedCount} pages. Target reached.`);
           return;
         }
@@ -624,23 +677,20 @@ export async function main(openai, supabase, newPagesTarget = 50) {
         const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         console.log(`[main] Checking existence for slug: "${slug}"`);
 
-        try {
-          const { data, error } = await supabase
-            .from("faq_files")
-            .select("slug")
-            .eq("slug", slug);
+        const { data: existingEntry, error: existenceError } = await supabase
+          .from("faq_files")
+          .select("slug")
+          .eq("slug", slug)
+          .limit(1)
+          .maybeSingle(); 
 
-          if (error) {
-            console.error(`[main] Error checking slug existence for "${slug}":`, error.message);
-            continue;
-          }
+        if (existenceError) {
+          console.error(`[main] Error checking slug existence for "${slug}":`, existenceError.message);
+          continue;
+        }
 
-          if (data && data.length > 0) {
-            console.log(`[main] Skipping "${title}" as it already exists in the database.`);
-            continue;
-          }
-        } catch (error) {
-          console.error(`[main] Unexpected error during slug check for "${slug}":`, error.message);
+        if (existingEntry) {
+          console.log(`[main] Skipping "${title}" as it already exists in the database.`);
           continue;
         }
 
@@ -662,21 +712,29 @@ export async function main(openai, supabase, newPagesTarget = 50) {
         }
 
         const { content, images } = pageData;
-        console.log(`[main] Starting enrichment process for "${title}"`);
-        const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated, openai, supabase);
 
-        if (!success) {
-          console.error(`[main] Enrichment process failed for "${title}"`);
+        console.log(`[main] Saving metadata for "${title}"`);
+        const metadataSaved = await saveMetadata(slug, humanReadableName, supabase);
+        if (!metadataSaved) {
+          console.error(`[main] Failed to save metadata for "${title}".`);
           continue;
         }
 
-        await saveMetadata(slug, humanReadableName, supabase);
-        console.log(`[main] Successfully processed and enriched FAQs for "${title}"`);
-        processedCount++;
+        console.log(`[main] Metadata saved successfully. Proceeding to FAQ generation for "${title}"`);
+
+        const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
+
+        if (success) {
+          processedCount++; // 🔹 Only increment if the process succeeds
+          console.log(`[main] ✅ Successfully processed: ${title} (Total: ${processedCount})`);
+        } else {
+          console.error(`[main] ❌ Enrichment process failed for "${title}".`);
+        }
       }
 
-      offset += 50;
+      offset += 50; // Move to next batch of Wikipedia pages
     }
+
 
     console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
   } catch (error) {
@@ -686,12 +744,32 @@ export async function main(openai, supabase, newPagesTarget = 50) {
 }
 
 
-main(2)
-  .then(() => {
-    console.log("[main] Execution finished successfully.");
-    process.exit(0);
-  })
-  .catch(async (error) => {
-    console.error("[main] An error occurred:", error);
+
+
+
+// 🚀 **Fix: Call `startProcess()` Only Once**
+async function startProcess() {
+  console.log("[startProcess] Initializing clients...");
+
+  // Ensure clients are only initialized once
+  const { openai, supabase } = initClients();
+
+  if (!openai || !supabase) {
+    console.error("[startProcess] ❌ One or more clients failed to initialize.");
     process.exit(1);
-  });
+  }
+
+  console.log("[startProcess] ✅ Clients initialized. Starting main process...");
+
+  try {
+    await main(openai, supabase, 2);
+    console.log("[startProcess] 🎉 Execution finished successfully.");
+    process.exit(0);
+  } catch (error) {
+    console.error("[startProcess] ❌ An error occurred:", error);
+    process.exit(1);
+  }
+}
+
+// Call the function once (prevents duplication)
+startProcess();
