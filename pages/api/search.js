@@ -20,7 +20,7 @@ async function generateEmbedding(text, maxRetries = 3) {
 
             const embedding = await openai.embeddings.create({
                 model: "text-embedding-3-small",
-                input: text,
+                input: text.replace(/\n/g, ' '), // OpenAI recommends replacing newlines with spaces
                 dimensions: 1536
             });
 
@@ -45,7 +45,57 @@ async function queryCombinedSearch(queryEmbedding, textQuery) {
     try {
         console.log('[API/Search] 🔍 Querying Supabase for search results...');
 
-        // Text Match Search with JOIN
+        // Vector Search using match_documents function
+        const { data: vectorResults, error: vectorError } = await supabase.rpc('match_documents', {
+            query_embedding: queryEmbedding,
+            match_threshold: 0.001,  // Lower threshold to see more results
+            match_count: 10
+        });
+
+        console.log('[API/Search] Vector results:', vectorResults);
+
+        if (vectorError) {
+            console.error('[API/Search] ❌ Error in vector search:', vectorError.message);
+            throw new Error(vectorError.message);
+        }
+
+        // Get full details for vector results
+        let enrichedVectorResults = [];
+        if (vectorResults && vectorResults.length > 0) {
+            const { data: fullDetails, error: detailsError } = await supabase
+                .from('raw_faqs')
+                .select(`
+                    id,
+                    faq_file_id,
+                    url,
+                    title,
+                    question,
+                    answer,
+                    media_link,
+                    human_readable_name,
+                    last_updated,
+                    subheader,
+                    cross_link,
+                    image_urls,
+                    faq_files (
+                        id,
+                        slug,
+                        human_readable_name
+                    )
+                `)
+                .in('id', vectorResults.map(r => r.id));
+
+            if (detailsError) {
+                console.error('[API/Search] ❌ Error getting vector result details:', detailsError);
+            } else {
+                enrichedVectorResults = fullDetails.map(detail => ({
+                    ...detail,
+                    similarity: vectorResults.find(r => r.id === detail.id)?.similarity || 0
+                }));
+            }
+        }
+
+        // Text Match Search with JOIN (as fallback)
         const { data: textResults, error: textError } = await supabase
             .from('raw_faqs')
             .select(`
@@ -66,38 +116,27 @@ async function queryCombinedSearch(queryEmbedding, textQuery) {
                     slug,
                     human_readable_name
                 )
-            `)  // Removed timestamp field
+            `)
             .or(`question.ilike.${textQuery},answer.ilike.${textQuery}`)
             .limit(10);
+
+        console.log('[API/Search] Text search results:', textResults?.length || 0);
 
         if (textError) {
             console.error('[API/Search] ❌ Error in text search:', textError.message);
             throw new Error(textError.message);
         }
 
-        // Vector Search
-        const { data: vectorResults, error: vectorError } = await supabase.rpc('search_faqs', {
-            query_embedding: queryEmbedding,
-            text_query: textQuery,
-            match_threshold: 0.7
-        });
+        // Prioritize vector results, use text results as fallback
+        const mergedResults = [...(enrichedVectorResults || [])];
 
-        if (vectorError) {
-            console.error('[API/Search] ❌ Error in vector search:', vectorError.message);
-            throw new Error(vectorError.message);
+        // Only add text results if we don't have enough vector results
+        if (mergedResults.length < 10) {
+            const textOnly = (textResults || []).filter(
+                tr => !mergedResults.find(vr => vr.id === tr.id)
+            );
+            mergedResults.push(...textOnly);
         }
-
-        // Merge and Deduplicate Results
-        const mergedResults = [...(textResults || []), ...(vectorResults || [])]
-            .reduce((acc, curr) => {
-                if (!acc.find((item) => item.id === curr.id)) {
-                    acc.push(curr);
-                }
-                return acc;
-            }, []);
-
-        // Sort by similarity if available
-        mergedResults.sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
 
         return mergedResults;
     } catch (error) {
@@ -106,7 +145,7 @@ async function queryCombinedSearch(queryEmbedding, textQuery) {
     }
 }
 
-// API Handler
+// API Handler remains the same
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });

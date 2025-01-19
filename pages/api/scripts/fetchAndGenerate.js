@@ -153,7 +153,7 @@ const tools = [
                 media_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant media links from the content." },
-                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. Don't reuse the same image for more than one Q&A. If there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
+                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. It should start with https://. It should not start with 'url:https://'. Don't reuse the same image for more than one Q&A. If there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
                 },
               },
               required: ["subheader", "question", "answer"],
@@ -187,12 +187,12 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "Cross-links for the FAQ derived from the section.",
+                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame",
                 },
                 media_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant media links from the content." },
-                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. Don't reuse the same image for more than one Q&A or any images used in the first pass.",
+                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. It should start with https://. It should not start with 'url:https://'. Don't reuse the same image for more than one Q&A. If there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
                 },
               },
               required: ["subheader", "question", "answer"],
@@ -454,55 +454,7 @@ const processWithEnrichment = async (title, content, images, url, humanReadableN
 
 
 
-const fetchWikipediaPage = async (title) => {
-  const endpoint = "https://en.wikipedia.org/w/api.php";
-  const params = {
-    action: "parse",
-    page: title,
-    prop: "text",
-    format: "json",
-  };
 
-  try {
-    console.log(`[fetchWikipediaPage] Fetching content for: ${title}`);
-    const response = await axios.get(endpoint, { params });
-    const page = response.data?.parse;
-
-    if (!page) {
-      console.error(`[fetchWikipediaPage] Page not found or missing for: ${title}`);
-      return null;
-    }
-
-    const htmlContent = page.text?.["*"]; // The full HTML content of the page
-    if (!htmlContent) {
-      console.error(`[fetchWikipediaPage] No HTML content available for: ${title}`);
-      return null;
-    }
-
-    // Use Cheerio to parse the HTML and extract image links
-    const $ = cheerio.load(htmlContent);
-    const images = [];
-    $("img").each((_, img) => {
-      let src = $(img).attr("src");
-      if (src) {
-        if (src.startsWith("//")) {
-          src = `https:${src}`;
-        } else if (!src.startsWith("http")) {
-          src = `https://en.wikipedia.org${src}`;
-        }
-        images.push(src);
-      }
-    });
-
-    console.log(`[fetchWikipediaPage] Content fetched for ${title}:\n${htmlContent.slice(0, 500)}`);
-    console.log(`[fetchWikipediaPage] Media links fetched for ${title}:`, images);
-
-    return { content: htmlContent, images };
-  } catch (error) {
-    console.error(`[fetchWikipediaPage] Error fetching page "${title}": ${error.message}`);
-    return null;
-  }
-};
 
 async function insertDataToSupabase(tableName, data) {
   try {
@@ -693,6 +645,172 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
   }
 };
 
+// **Step 1: Fetch Media Links from Existing FAQs**
+async function fetchMediaLinksFromFAQs() {
+  console.log("[fetchMediaLinksFromFAQs] Retrieving media links from stored FAQs...");
+
+  try {
+    const { data, error } = await supabase
+      .from("raw_faqs")
+      .select("media_link")
+      .not("media_link", "is", null) // Filter out null media links
+      .limit(50);  // Fetch up to 50 media links
+
+    if (error) {
+      console.error("[fetchMediaLinksFromFAQs] ❌ Error retrieving media links:", error.message);
+      return [];
+    }
+
+    const uniqueMediaLinks = [...new Set(data.map(faq => faq.media_link).filter(Boolean))]; // Remove duplicates
+    console.log(`[fetchMediaLinksFromFAQs] Found ${uniqueMediaLinks.length} media links.`);
+    return uniqueMediaLinks;
+  } catch (error) {
+    console.error("[fetchMediaLinksFromFAQs] ❌ Unexpected error:", error.message);
+    return [];
+  }
+}
+
+// **Step 2: Fetch Wikipedia Titles for Media Links**
+async function fetchWikipediaTitlesForMedia(mediaLinks) {
+  console.log(`[fetchWikipediaTitlesForMedia] Fetching Wikipedia titles for media links...`);
+
+  let processedTitles = [];
+
+  for (let link of mediaLinks) {
+    if (processedTitles.length >= MEDIA_PAGE_LIMIT) break;  // 🔹 Cap number of pages
+
+    const match = link.match(/\/wiki\/(File:[^/]+)/);
+    if (!match) {
+      console.warn(`[fetchWikipediaTitlesForMedia] Skipping invalid media link: ${link}`);
+      continue;
+    }
+
+    const title = decodeURIComponent(match[1]);  // Extract Wikipedia File title
+    if (await isTitleProcessed(title)) {
+      console.log(`[fetchWikipediaTitlesForMedia] Skipping already processed title: ${title}`);
+      continue;
+    }
+
+    processedTitles.push(title);
+  }
+
+  console.log(`[fetchWikipediaTitlesForMedia] Processing ${processedTitles.length} Wikipedia media pages.`);
+  return processedTitles;
+}
+
+// **Step 3: Check if Wikipedia Title Already Processed**
+async function isTitleProcessed(title) {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  try {
+    const { data, error } = await supabase
+      .from("faq_files")
+      .select("slug")
+      .eq("slug", slug)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(`[isTitleProcessed] ❌ Error checking existence for "${title}":`, error.message);
+      return true;
+    }
+
+    return Boolean(data);
+  } catch (error) {
+    console.error(`[isTitleProcessed] ❌ Unexpected error:`, error.message);
+    return true;
+  }
+}
+
+// **Step 4: Fetch Wikipedia Page Content for Media Titles**
+async function fetchWikipediaPage(title) {
+  const endpoint = "https://en.wikipedia.org/w/api.php";
+  const params = {
+    action: "parse",
+    page: title,
+    prop: "text",
+    format: "json",
+  };
+
+  try {
+    console.log(`[fetchWikipediaPage] Fetching content for: ${title}`);
+    const response = await axios.get(endpoint, { params });
+    const page = response.data?.parse;
+
+    if (!page) {
+      console.error(`[fetchWikipediaPage] Page not found for: ${title}`);
+      return null;
+    }
+
+    const htmlContent = page.text?.["*"];
+    if (!htmlContent) {
+      console.error(`[fetchWikipediaPage] No content available for: ${title}`);
+      return null;
+    }
+
+    // Parse and extract images
+    const $ = cheerio.load(htmlContent);
+    const images = [];
+    $("img").each((_, img) => {
+      let src = $(img).attr("src");
+      if (src) {
+        if (src.startsWith("//")) {
+          src = `https:${src}`;
+        } else if (!src.startsWith("http")) {
+          src = `https://en.wikipedia.org${src}`;
+        }
+        images.push(src);
+      }
+    });
+
+    console.log(`[fetchWikipediaPage] Extracted ${images.length} images for ${title}`);
+    return { content: htmlContent, images };
+  } catch (error) {
+    console.error(`[fetchWikipediaPage] Error fetching page "${title}": ${error.message}`);
+    return null;
+  }
+}
+
+// **Step 5: Generate and Save FAQs for Wikipedia Media Pages**
+async function processWikipediaMediaPages() {
+  console.log("[processWikipediaMediaPages] Starting process...");
+
+  const mediaLinks = await fetchMediaLinksFromFAQs();
+  const wikipediaTitles = await fetchWikipediaTitlesForMedia(mediaLinks);
+
+  for (let title of wikipediaTitles) {
+    console.log(`[processWikipediaMediaPages] Processing Wikipedia media page: "${title}"`);
+
+    const metadata = await fetchWikipediaMetadata(title);
+    const { lastUpdated, humanReadableName } = metadata;
+
+    if (!humanReadableName) {
+      console.warn(`[processWikipediaMediaPages] No human-readable name for "${title}". Skipping.`);
+      continue;
+    }
+
+    const pageData = await fetchWikipediaPage(title);
+    if (!pageData) {
+      console.error(`[processWikipediaMediaPages] Skipping "${title}" due to empty content.`);
+      continue;
+    }
+
+    const { content, images } = pageData;
+    const url = `https://en.wikipedia.org/wiki/${title}`;
+
+    console.log(`[processWikipediaMediaPages] Generating FAQs for "${title}"`);
+    const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
+
+    if (success) {
+      console.log(`[processWikipediaMediaPages] ✅ Successfully processed media page: ${title}`);
+    } else {
+      console.error(`[processWikipediaMediaPages] ❌ Failed to process media page: ${title}`);
+    }
+  }
+
+  console.log("[processWikipediaMediaPages] Process complete.");
+}
+
 
 
 export async function main(openai, supabase, newPagesTarget = 50) {
@@ -720,7 +838,33 @@ export async function main(openai, supabase, newPagesTarget = 50) {
     }
     console.log("[Supabase] Connection test successful:", connectionTest);
 
-    while (processedCount < newPagesTarget) {
+    // **Step 1: Process Wikipedia media-linked pages first**
+    console.log("[main] Checking for media-linked Wikipedia pages...");
+    await processWikipediaMediaPages();
+
+    // **Step 2: Check how many pages were processed before fetching popular Wikipedia pages**
+    console.log("[main] Checking processed page count...");
+    const { count: existingFaqsCount, error: countError } = await supabase
+      .from("faq_files")
+      .select("id", { count: "exact" });
+
+    if (countError) {
+      console.error("[main] ❌ Error retrieving FAQ count:", countError.message);
+      return;
+    }
+
+    console.log(`[main] Total processed FAQs so far: ${existingFaqsCount}`);
+    let remainingPages = newPagesTarget - existingFaqsCount;
+
+    if (remainingPages <= 0) {
+      console.log(`[main] No additional pages needed. Exiting...`);
+      return;
+    }
+
+    console.log(`[main] Still need to process ${remainingPages} more pages.`);
+
+    // **Step 3: Fetch and process the most popular Wikipedia pages if needed**
+    while (processedCount < remainingPages) {
       const titles = await fetchTopWikipediaPages(offset, 50);
       if (!titles.length) {
         console.error("[main] No more titles to fetch. Exiting...");
@@ -728,7 +872,7 @@ export async function main(openai, supabase, newPagesTarget = 50) {
       }
 
       for (const title of titles) {
-        if (processedCount >= newPagesTarget) {  // 🔹 Ensure we stop exactly at 2
+        if (processedCount >= remainingPages) {
           console.log(`[main] Processed ${processedCount} pages. Target reached.`);
           return;
         }
@@ -741,7 +885,7 @@ export async function main(openai, supabase, newPagesTarget = 50) {
           .select("slug")
           .eq("slug", slug)
           .limit(1)
-          .maybeSingle(); 
+          .maybeSingle();
 
         if (existenceError) {
           console.error(`[main] Error checking slug existence for "${slug}":`, existenceError.message);
@@ -794,13 +938,13 @@ export async function main(openai, supabase, newPagesTarget = 50) {
       offset += 50; // Move to next batch of Wikipedia pages
     }
 
-
     console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
   } catch (error) {
     console.error(`[main] Unexpected error:`, error.message);
     throw error;
   }
 }
+
 
 
 
@@ -821,7 +965,7 @@ async function startProcess() {
   console.log("[startProcess] ✅ Clients initialized. Starting main process...");
 
   try {
-    await main(openai, supabase, 2);
+    await main(openai, supabase, 15);
     console.log("[startProcess] 🎉 Execution finished successfully.");
     process.exit(0);
   } catch (error) {
