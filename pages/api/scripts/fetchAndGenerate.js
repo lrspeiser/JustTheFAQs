@@ -14,16 +14,73 @@ console.log("NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL ||
 console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? "Loaded" : "Missing");
 
 let globalSupabase = null; // Ensure single instance
+const BATCH_SIZE = 32;
 
 let embedder = null;
+
+const handleError = (context, error) => {
+  console.error(`[${context}] Error:`, {
+    message: error.message,
+    stack: error.stack,
+    cause: error.cause
+  });
+  return null;
+};
+
+// Use it in your error handlers
+try {
+  // Some operation
+} catch (error) {
+  handleError('saveStructuredFAQ', error);
+}
+
+
+
 async function initEmbedder() {
   if (!embedder) {
-    console.log("[initEmbedder] Initializing embedding model...");
-    embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
-    console.log("[initEmbedder] Embedder initialized.");
+    console.log("[initEmbedder] Initializing BGE embedding model...");
+    let retries = 0;
+    const maxRetries = 3;
+
+    while (retries < maxRetries) {
+      try {
+        embedder = await pipeline('feature-extraction', 'BAAI/bge-large-en-v1.5', {
+          revision: 'main',
+          quantized: true,
+          load_in_8bit: true, // Use 8-bit quantization
+          low_memory: true // Enable low memory mode
+        });
+        console.log("[initEmbedder] ✅ BGE embedder initialized successfully.");
+        break;
+      } catch (error) {
+        retries++;
+        console.error(`[initEmbedder] Attempt ${retries} failed:`, error.message);
+        if (retries === maxRetries) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+      }
+    }
   }
   return embedder;
 }
+
+const generateEmbedding = async (text) => {
+  try {
+    console.log('[generateEmbedding] Generating embedding for:', text);
+
+    const embedding = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: text,
+      dimensions: 1536  // Using 1536 dimensions for compatibility with existing database
+    });
+
+    console.log('[generateEmbedding] Successfully generated embedding');
+    return embedding.data[0].embedding;
+  } catch (error) {
+    console.error('[generateEmbedding] Error generating embedding:', error.message);
+    throw error;
+  }
+};
+
 
 
 export function initClients() {
@@ -328,7 +385,7 @@ const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
         },
         {
           role: "user",
-          content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high quality standards. Focus on interesting aspects that weren't covered in the first pass.
+          content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high quality standards. Focus on interesting aspects that weren't covered in the first pass. DO NOT REPEAT EXISTING QUESTIONS.
 
 Title: ${title}
 
@@ -450,11 +507,21 @@ const fetchWikipediaPage = async (title) => {
 async function insertDataToSupabase(tableName, data) {
   try {
     console.log(`[Supabase] Attempting to insert into ${tableName}:`, data);
-    const { data: insertedData, error } = await supabase.from(tableName).insert([data]);
+    const { data: insertedData, error } = await supabase
+      .from(tableName)
+      .insert([data])
+      .select('*')  // Add this to get the inserted data back
+      .single();    // Add this to get a single row
+
     if (error) {
       console.error(`[Supabase] Error inserting into ${tableName}:`, error.message);
       throw error;
     }
+
+    if (!insertedData) {
+      throw new Error(`No data returned from ${tableName} insert`);
+    }
+
     console.log(`[Supabase] Successfully inserted into ${tableName}:`, insertedData);
     return insertedData;
   } catch (error) {
@@ -464,88 +531,80 @@ async function insertDataToSupabase(tableName, data) {
 }
 
 
-  const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
-    if (!faqs || !faqs.length) {
-      console.error("[saveStructuredFAQ] No FAQs to save.");
-      return;
-    }
 
-    // First, ensure we have the FAQ file entry and get its ID
-    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const faqFileId = await saveMetadata(slug, humanReadableName, supabase);
 
-    if (!faqFileId) {
-      console.error("[saveStructuredFAQ] Failed to get or create FAQ file entry.");
-      return;
-    }
+const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
+  if (!faqs || !faqs.length) {
+    console.error("[saveStructuredFAQ] No FAQs to save.");
+    return;
+  }
 
-    console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const faqFileId = await saveMetadata(slug, humanReadableName, supabase);
 
-    // Process FAQs with thumbnails
-    const faqWithThumbnails = await Promise.all(
-      faqs.map(async (faq, index) => {
+  if (!faqFileId) {
+    console.error("[saveStructuredFAQ] Failed to get or create FAQ file entry.");
+    return;
+  }
+
+  console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
+
+  // Process FAQs in batches
+  const BATCH_SIZE = 5;
+  const batches = [];
+
+  for (let i = 0; i < faqs.length; i += BATCH_SIZE) {
+    batches.push(faqs.slice(i, i + BATCH_SIZE));
+  }
+
+  for (const batch of batches) {
+    await Promise.all(
+      batch.map(async (faq) => {
         try {
-          const mediaLink = faq.media_links?.[0] || null;
-          let thumbnailURL = null;
-          if (mediaLink) {
-            try {
-              thumbnailURL = await fetchThumbnailURL(mediaLink, 480);
-            } catch (thumbnailError) {
-              console.error(`[saveStructuredFAQ] Thumbnail error for FAQ ${index + 1}:`, thumbnailError);
-            }
+          // Prepare FAQ data
+          const faqData = {
+            faq_file_id: faqFileId,
+            url,
+            title,
+            human_readable_name: humanReadableName,
+            last_updated: lastUpdated,
+            subheader: faq.subheader || null,
+            question: faq.question,
+            answer: faq.answer,
+            cross_link: faq.cross_links ? faq.cross_links.join(", ") : null,
+            media_link: faq.media_links?.[0] || null,
+            image_urls: faq.media_links ? faq.media_links.join(", ") : null,
+          };
+
+          // Save FAQ
+          console.log(`[saveStructuredFAQ] Saving FAQ: "${faq.question}"`);
+          const savedFaq = await insertDataToSupabase('raw_faqs', faqData);
+
+          if (!savedFaq) {
+            throw new Error('Failed to save FAQ');
           }
 
-          return { ...faq, thumbnailURL, mediaLinks: faq.media_links || [] };
-        } catch (faqError) {
-          console.error(`[saveStructuredFAQ] Error processing FAQ ${index + 1}:`, faqError);
-          return { ...faq, thumbnailURL: null, mediaLinks: [] };
+          // Generate and save embedding
+          console.log(`[saveStructuredFAQ] Generating embedding for: "${faq.question}"`);
+          const embedding = await generateEmbedding(faq.question);
+
+          // Save embedding
+          const embeddingData = {
+            faq_id: savedFaq.id,
+            question: faq.question,
+            embedding
+          };
+
+          await insertDataToSupabase('faq_embeddings', embeddingData);
+          console.log(`[saveStructuredFAQ] ✅ Saved FAQ and embedding for: "${faq.question}"`);
+
+        } catch (error) {
+          console.error(`[saveStructuredFAQ] Error processing FAQ: "${faq.question}"`, error);
         }
       })
     );
-
-    // Save FAQs with the faq_file_id reference
-    for (const faq of faqWithThumbnails) {
-      const data = {
-        faq_file_id: faqFileId,  // Add the foreign key reference
-        url,
-        title,
-        human_readable_name: humanReadableName,
-        last_updated: lastUpdated,
-        subheader: faq.subheader || null,
-        question: faq.question,
-        answer: faq.answer,
-        cross_link: faq.cross_links ? faq.cross_links.join(", ") : null,
-        media_link: faq.thumbnailURL || null,
-        image_urls: faq.mediaLinks ? faq.mediaLinks.join(", ") : null,
-      };
-
-      try {
-        // Save FAQ to Supabase with the faq_file_id
-        const { data: savedFaq, error: faqError } = await insertDataToSupabase('raw_faqs', data);
-
-        if (faqError) {
-          console.error(`[saveStructuredFAQ] Error saving FAQ:`, faqError);
-          continue;
-        }
-
-        // Generate and save embeddings with the correct faq_id
-        const localEmbedder = await initEmbedder();
-        const output = await localEmbedder(faq.question, { pooling: 'mean', normalize: true });
-        const embedding = Array.from(output.data);
-
-        const embeddingData = {
-          faq_id: savedFaq.id,
-          question: faq.question,
-          embedding,
-        };
-
-        await insertDataToSupabase('faq_embeddings', embeddingData);
-        console.log(`[saveStructuredFAQ] Saved FAQ and embedding for question: ${faq.question}`);
-      } catch (error) {
-        console.error(`[saveStructuredFAQ] Error saving FAQ: ${faq.question}`, error.message);
-      }
-    }
-  };
+  }
+};
 
 
 // Add this utility function to handle cross-links properly
