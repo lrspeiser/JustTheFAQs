@@ -31,10 +31,7 @@ functionality.
 │   ├── _app.tsx                           # Next.js app-level component.
 │   ├── index.js                           # Entry point for the frontend.
 ├── stream.js                               # Likely handles streaming of data.
-
 ```
-
-
 
 ## How It Works
 
@@ -117,8 +114,6 @@ npm start
 
 ## Database Schema
 
-## Database Schema
-
 ### `raw_faqs`
 | Column             | Data Type                | Description                           |
 |--------------------|--------------------------|---------------------------------------|
@@ -133,8 +128,8 @@ npm start
 | last_updated       | TIMESTAMP               | Last update timestamp                 |
 | subheader          | TEXT                    | Section subheader                     |
 | cross_link         | TEXT                    | Related FAQ links                     |
-| thumbnail_url      | TEXT                    | Not currently in use.                 |
 | image_urls         | TEXT                    | Additional image URLs                 |
+| faq_file_id        | INTEGER                 | Foreign key linking to faq_files      |
 
 ### `faq_files`
 | Column             | Data Type                | Description                           |
@@ -169,3 +164,4 @@ This project is licensed under the MIT License. See the LICENSE file for details
 ---
 
 **JustTheFAQs** makes Wikipedia content more accessible and engaging by turning dense articles into concise, user-friendly FAQs. Start exploring knowledge with clarity!
+
