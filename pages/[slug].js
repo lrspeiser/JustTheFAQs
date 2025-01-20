@@ -115,30 +115,39 @@ export default function FAQPage() {
                                 }}></div>
                             </div>
 
-                            {faq.cross_links.length > 0 && (
-                                <div className="related-links">
-                                    <span>Related Pages:</span>
-                                    <ul>
-                                        {faq.cross_links.map((link, index) => {
-                                            const displayName = link.trim();
-                                            const linkSlug = displayName
-                                                .toLowerCase()
-                                                .replace(/[^a-z0-9]+/g, '-');
+                          {faq.cross_links.length > 0 && (
+                              <div className="related-links">
+                                  <span>Related Pages:</span>
+                                  <ul>
+                                      {faq.cross_links.map((link, index) => {
+                                          let displayName = link.trim();
 
-                                            return (
-                                                <li key={index}>
-                                                    <a
-                                                        href={`/${linkSlug}`}
-                                                        className="related-topic-link"
-                                                    >
-                                                        {displayName}
-                                                    </a>
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
-                                </div>
-                            )}
+                                          // Ensure we're not prepending "/wiki/"
+                                          if (displayName.startsWith("/wiki/")) {
+                                              displayName = displayName.replace("/wiki/", "");
+                                          }
+
+                                          // Format slug properly for URL routing
+                                          const linkSlug = displayName
+                                              .replace(/_/g, '-') // Convert underscores to dashes
+                                              .replace(/[^a-zA-Z0-9-]+/g, '') // Remove invalid characters
+                                              .toLowerCase(); // Convert to lowercase
+
+                                          return (
+                                              <li key={index}>
+                                                  <a
+                                                      href={`/${linkSlug}`}
+                                                      className="related-topic-link"
+                                                  >
+                                                      {displayName.replace(/-/g, ' ')} {/* Display readable name */}
+                                                  </a>
+                                              </li>
+                                          );
+                                      })}
+                                  </ul>
+                              </div>
+                          )}
+
                         </article>
                     ))}
                 </div>

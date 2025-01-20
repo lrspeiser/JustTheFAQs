@@ -28,17 +28,20 @@ import LogDisplay from '../lib/LogDisplay';
         const formatWikiSlug = (url) => {
           if (!url) return '';
           try {
-            let cleanUrl = url.replace(/^\/wiki\//, '');
-            cleanUrl = decodeURIComponent(cleanUrl);
-            return cleanUrl
-              .replace(/_/g, '-')
-              .replace(/[^\w\-]+/g, '-')
-              .replace(/-+/g, '-')
-              .replace(/^-|-$/g, '');
+            let cleanUrl = decodeURIComponent(url);
+
+            // Ensure we only strip the "/wiki/" prefix and nothing else
+            if (cleanUrl.startsWith('/wiki/')) {
+              cleanUrl = cleanUrl.replace('/wiki/', '');
+            }
+
+            // Replace underscores with dashes
+            return cleanUrl.replace(/_/g, '-').toLowerCase();
           } catch {
-            return url.replace(/[^\w\-]+/g, '-');
+            return url.toLowerCase();
           }
         };
+
 
         const formatHumanReadableName = (url) => {
           if (!url) return '';
