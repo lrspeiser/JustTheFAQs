@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import DOMPurify from 'dompurify';
-import LogDisplay from '../lib/LogDisplay';
 
 const FAQEntry = ({ faq, existingFaqSlugs }) => {
   // Add debug logging
