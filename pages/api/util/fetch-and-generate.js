@@ -1,8 +1,6 @@
 // pages/api/util/fetch-and-generate.js
 import { initClients } from '../../../lib/db';
-import { main } from '../scripts/fetchAndGenerate';  // Updated path to point to pages/api/scripts
-
-const MEDIA_PAGE_LIMIT = 1;
+import { main } from '../scripts/fetchAndGenerate';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -16,26 +14,24 @@ export default async function handler(req, res) {
     const { openai, supabase } = initClients();
 
     if (!openai || !supabase) {
-      console.error("[API] One or more clients failed to initialize.");
-      return res.status(500).json({ 
-        error: 'Failed to initialize required clients' 
-      });
+      console.error("[API] ❌ One or more clients failed to initialize.");
+      return res.status(500).json({ error: 'Failed to initialize required clients' });
     }
 
-    // Start the main process
-    console.log("[API] Calling main process...");
-    await main(openai, supabase, MEDIA_PAGE_LIMIT);
+    // Call main without allowing it to terminate the process
+    const processedCount = await main(openai, supabase);
 
-    console.log('[API] Process completed successfully');
+    console.log(`[API] Process completed successfully. Processed ${processedCount} pages.`);
     return res.status(200).json({ 
       success: true, 
-      message: 'Fetch and generate process completed successfully.' 
+      message: `Fetch and generate process completed successfully. Processed ${processedCount} pages.`,
+      processedCount
     });
 
   } catch (error) {
     console.error('[API] Error in fetch and generate process:', error);
     return res.status(500).json({ 
-      error: 'Failed to start fetch and generate process',
+      error: 'Failed to execute fetch and generate process',
       details: error.message 
     });
   }

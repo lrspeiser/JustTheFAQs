@@ -762,18 +762,26 @@ const fetchThumbnailURL = async (mediaLink, size = 480) => {
 
 
 
-const fetchTopWikipediaPages = async (offset = 0, limit = 50) => {
+const fetchTopWikipediaPages = async (offset = 0) => {
   const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/2023/12/31`;
   try {
-    console.log(`[fetchTopWikipediaPages] Fetching Wikipedia pages (offset: ${offset}, limit: ${limit})...`);
+    console.log(`[fetchTopWikipediaPages] Fetching Wikipedia pages...`);
     const response = await axios.get(url);
-    const articles = response.data.items[0].articles.slice(offset, offset + limit);
+
+    // Get ALL articles and filter out special pages
+    const articles = response.data.items[0].articles
+      .filter(article => !article.article.includes(':'))  // Filter out special pages
+      .filter(article => !article.article.startsWith('Main_'))  // Filter out main pages
+      .filter(article => article.article.length > 0);  // Ensure valid titles
+
+    console.log(`[fetchTopWikipediaPages] Found ${articles.length} potential pages to process`);
     return articles.map((article) => article.article);
   } catch (error) {
     console.error("[fetchTopWikipediaPages] Error fetching top pages:", error.message);
     return [];
   }
 };
+
 
 // **Step 1: Fetch Media Links from Existing FAQs**
 async function fetchMediaLinksFromFAQs() {
@@ -978,7 +986,6 @@ async function main() {
     .from("raw_faqs")
     .select("cross_link")
     .not("cross_link", "is", null)
-    .limit(50); // Get up to 50 cross-links to process
 
   if (relatedLinksError) {
     console.error("[main] ❌ Error retrieving related links:", relatedLinksError.message);
@@ -1111,6 +1118,8 @@ async function main() {
   }
 
   console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
+  return processedCount;  // Add this line to return the count
+
 }
 
 
@@ -1148,4 +1157,4 @@ async function startProcess() {
 export { main };
 
 // Call the function once (prevents duplication)
-startProcess();
+// commenting this out startProcess();
