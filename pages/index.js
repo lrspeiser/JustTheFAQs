@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import DOMPurify from 'dompurify';
+import LogDisplay from '../lib/LogDisplay';
 
 const FAQEntry = ({ faq, existingFaqSlugs }) => {
   // Add debug logging
@@ -121,7 +122,9 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
                       {displayName}
                     </a>
                   ) : (
-                    <span className="unavailable-topic">{displayName}</span>
+                    <a className="related-topic-link" style={{ color: '#808080', cursor: 'default', pointerEvents: 'none' }}>
+                      {displayName}
+                    </a>
                   )}
                 </li>
               );
