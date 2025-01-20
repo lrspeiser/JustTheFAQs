@@ -1,4 +1,4 @@
-import { main } from "../../api/scripts/fetchAndGenerate"; // Import backend script
+import path from "path";
 
 export const config = {
   api: {
@@ -14,8 +14,16 @@ export default async function handler(req, res) {
   try {
     console.log("[FetchAndGenerate API] 🚀 Received request...");
 
+    // ✅ Dynamically import backend script using absolute path
+    const scriptPath = path.join(process.cwd(), "api/scripts/fetchAndGenerate.js");
+    const fetchAndGenerate = await import(scriptPath);
+
+    if (!fetchAndGenerate || !fetchAndGenerate.main) {
+      throw new Error("fetchAndGenerate.js does not export a `main` function.");
+    }
+
     // ✅ Run backend script WITHOUT a target parameter
-    await main(); 
+    await fetchAndGenerate.main(); 
 
     return res.status(200).json({
       success: true,
