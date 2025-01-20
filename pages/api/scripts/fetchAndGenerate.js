@@ -15,7 +15,7 @@ console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_A
 
 let globalSupabase = null; // Ensure single instance
 const BATCH_SIZE = 32;
-const MEDIA_PAGE_LIMIT = 20; // Change this value if you want to process more pages
+const MEDIA_PAGE_LIMIT = 1; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 
 let embedder = null;
@@ -150,7 +150,7 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame"
+                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)"
                 },
                 media_links: {
                   type: "array",
@@ -189,7 +189,7 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame",
+                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)",
                 },
                 media_links: {
                   type: "array",
@@ -694,6 +694,7 @@ const formatCrossLinks = (links) => {
     if (typeof links === 'string') {
       return links.split(',')
         .map(link => link.trim())
+        .filter(link => !link.includes('#')) // ❌ Remove anchor links
         .map(link => {
           // Remove /wiki/ prefix if present
           const cleanLink = link.replace(/^\/wiki\//, '');
@@ -702,11 +703,12 @@ const formatCrossLinks = (links) => {
         })
         .filter(Boolean); // Remove empty links
     }
-    return links;
+    return links.filter(link => !link.includes('#')); // Remove anchors in array input
   } catch {
     return [];
   }
 };
+
 
 
 const fetchThumbnailURL = async (mediaLink, size = 480) => {
