@@ -127,19 +127,19 @@ export default function FAQPage() {
                                               displayName = displayName.replace("/wiki/", "");
                                           }
 
-                                          // Format slug properly for URL routing
+                                          // Format slug properly for URL routing (ensure lowercase)
                                           const linkSlug = displayName
                                               .replace(/_/g, '-') // Convert underscores to dashes
                                               .replace(/[^a-zA-Z0-9-]+/g, '') // Remove invalid characters
-                                              .toLowerCase(); // Convert to lowercase
+                                              .toLowerCase(); // ✅ Ensure lowercase for routing
 
                                           return (
                                               <li key={index}>
                                                   <a
-                                                      href={`/${linkSlug}`}
+                                                      href={`/${linkSlug}`} // ✅ Ensuring lowercase for routing
                                                       className="related-topic-link"
                                                   >
-                                                      {displayName.replace(/-/g, ' ')} {/* Display readable name */}
+                                                      {displayName.replace(/-/g, ' ')} {/* Keep readable capitalization */}
                                                   </a>
                                               </li>
                                           );
@@ -147,6 +147,7 @@ export default function FAQPage() {
                                   </ul>
                               </div>
                           )}
+
 
                         </article>
                     ))}
