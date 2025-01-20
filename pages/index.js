@@ -2,139 +2,136 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import DOMPurify from 'dompurify';
-import LogDisplay from '../lib/LogDisplay';
 
-      const FAQEntry = ({ faq }) => {
-        // Add debug logging
-        console.log('FAQ Data Received:', {
-          id: faq.id,
-          human_readable_name: faq.human_readable_name,
-          page_slug: faq.page_slug,
-          title: faq.title,
-          question: faq.question,
-          subheader: faq.subheader,
-          faq_file_id: faq.faq_file_id // Check if we're getting this
-        });
+const FAQEntry = ({ faq, existingFaqSlugs }) => {
+  // Add debug logging
+  console.log('FAQ Data Received:', {
+    id: faq.id,
+    human_readable_name: faq.human_readable_name,
+    page_slug: faq.page_slug,
+    title: faq.title,
+    question: faq.question,
+    subheader: faq.subheader,
+    faq_file_id: faq.faq_file_id
+  });
 
-        const getPageName = () => {
-          console.log('getPageName called with:', {
-            human_readable_name: faq.human_readable_name,
-            title: faq.title
-          });
-          return faq.human_readable_name || 'Uncategorized';
-        };
+  const getPageName = () => {
+    console.log('getPageName called with:', {
+      human_readable_name: faq.human_readable_name,
+      title: faq.title
+    });
+    return faq.human_readable_name || 'Uncategorized';
+  };
 
+  const formatWikiSlug = (url) => {
+    if (!url) return '';
+    try {
+      let cleanUrl = decodeURIComponent(url);
 
-        const formatWikiSlug = (url) => {
-          if (!url) return '';
-          try {
-            let cleanUrl = decodeURIComponent(url);
+      // Ensure we only strip the "/wiki/" prefix and nothing else
+      if (cleanUrl.startsWith('/wiki/')) {
+        cleanUrl = cleanUrl.replace('/wiki/', '');
+      }
 
-            // Ensure we only strip the "/wiki/" prefix and nothing else
-            if (cleanUrl.startsWith('/wiki/')) {
-              cleanUrl = cleanUrl.replace('/wiki/', '');
-            }
+      // Replace underscores with dashes
+      return cleanUrl.replace(/_/g, '-').toLowerCase();
+    } catch {
+      return url.toLowerCase();
+    }
+  };
 
-            // Replace underscores with dashes
-            return cleanUrl.replace(/_/g, '-').toLowerCase();
-          } catch {
-            return url.toLowerCase();
-          }
-        };
+  const formatHumanReadableName = (url) => {
+    if (!url) return '';
+    try {
+      let name = url.replace(/^\/wiki\//, '');
+      name = decodeURIComponent(name);
+      return name
+        .replace(/_/g, ' ')
+        .replace(/\(.*?\)/g, '')
+        .replace(/\u2013/g, '-')
+        .replace(/\u2014/g, '-')
+        .trim();
+    } catch {
+      return url.replace(/_/g, ' ').trim();
+    }
+  };
 
+  const getRelatedTopics = () => {
+    if (!faq.cross_links) return [];
+    try {
+      if (typeof faq.cross_links === 'string') {
+        return faq.cross_links
+          .split(',')
+          .map(link => link.trim())
+          .filter(Boolean);
+      }
+      return faq.cross_links;
+    } catch {
+      return [];
+    }
+  };
 
-        const formatHumanReadableName = (url) => {
-          if (!url) return '';
-          try {
-            let name = url.replace(/^\/wiki\//, '');
-            name = decodeURIComponent(name);
-            return name
-              .replace(/_/g, ' ')
-              .replace(/\(.*?\)/g, '')
-              .replace(/\u2013/g, '-')
-              .replace(/\u2014/g, '-')
-              .trim();
-          } catch {
-            return url.replace(/_/g, ' ').trim();
-          }
-        };
+  const relatedTopics = getRelatedTopics();
 
-        const getRelatedTopics = () => {
-          if (!faq.cross_links) return [];
-          try {
-            if (typeof faq.cross_links === 'string') {
-              return faq.cross_links
-                .split(',')
-                .map(link => link.trim())
-                .filter(Boolean);
-            }
-            return faq.cross_links;
-          } catch {
-            return [];
-          }
-        };
+  return (
+    <article className="faq-entry">
+      <header className="entry-header">
+        <a href={`/${faq.page_slug || ''}`} className="page-name">
+          {getPageName()}
+        </a>
+        {faq.similarity > 0 && (
+          <div className="debug-info">
+            <small>
+              Match Score: {Math.round(faq.similarity * 100)}%
+            </small>
+          </div>
+        )}
+      </header>
 
-        const relatedTopics = getRelatedTopics();
+      {faq.subheader && <div className="subheader">{faq.subheader}</div>}
 
-        return (
-          <article className="faq-entry">
-            <header className="entry-header">
-              <a href={`/${faq.page_slug || ''}`} className="page-name">
-                {getPageName()}
-              </a>
-              {faq.similarity > 0 && (
-                <div className="debug-info">
-                  <small>
-                    Match Score: {Math.round(faq.similarity * 100)}%
-                  </small>
-                </div>
-              )}
-            </header>
+      <div className="question-with-image">
+        <h2 className="question">Question: {faq.question}</h2>
+        {faq.media_link && (
+          <div className="image">
+            <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
+          </div>
+        )}
+      </div>
 
-            {faq.subheader && <div className="subheader">{faq.subheader}</div>}
+      <div className="answer-container">
+        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer) }}></div>
+      </div>
 
-            <div className="question-with-image">
-              <h2 className="question">Question: {faq.question}</h2>
-              {faq.media_link && (
-                <div className="image">
-                  <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
-                </div>
-              )}
-            </div>
+      {relatedTopics.length > 0 && (
+        <div className="related-links">
+          <span>Related Pages:</span>
+          <ul>
+            {relatedTopics.map((topic, index) => {
+              const displayName = formatHumanReadableName(topic);
+              const slug = formatWikiSlug(topic);
 
-            <div className="answer-container">
-              <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer) }}></div>
-            </div>
+              // Now using the passed down existingFaqSlugs
+              const isPageAvailable = existingFaqSlugs?.includes(slug);
 
-            {relatedTopics.length > 0 && (
-              <div className="related-links">
-                <span>Related Pages:</span>
-                <ul>
-                  {relatedTopics.map((topic, index) => {
-                    const displayName = formatHumanReadableName(topic);
-                    const slug = formatWikiSlug(topic);
-
-                    if (!displayName || !slug) return null;
-
-                    return (
-                      <li key={index}>
-                        <a
-                          href={`/${slug}`}
-                          className="related-topic-link"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {displayName}
-                        </a>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
-          </article>
-        );
-      };
+              return (
+                <li key={index}>
+                  {isPageAvailable ? (
+                    <a href={`/${slug}`} className="related-topic-link">
+                      {displayName}
+                    </a>
+                  ) : (
+                    <span className="unavailable-topic">{displayName}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </article>
+  );
+};
 
 const TopicLink = ({ name }) => {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -151,6 +148,26 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
+  const [existingFaqSlugs, setExistingFaqSlugs] = useState([]);
+
+  // Fetch existing FAQ slugs when component mounts
+  useEffect(() => {
+    const fetchExistingFaqSlugs = async () => {
+      try {
+        const response = await fetch('/api/faq-slugs');
+        if (!response.ok) {
+          throw new Error('Failed to fetch FAQ slugs');
+        }
+        const data = await response.json();
+        setExistingFaqSlugs(data.slugs);
+      } catch (error) {
+        console.error('Error fetching FAQ slugs:', error);
+        setExistingFaqSlugs([]);
+      }
+    };
+
+    fetchExistingFaqSlugs();
+  }, []);
 
   useEffect(() => {
     const query = router.query.q;
@@ -178,7 +195,6 @@ export default function Home() {
       const data = await response.json();
       console.log('[Search Results] Full response data:', data);
 
-      // Log each FAQ's key fields
       data.forEach((faq, index) => {
         console.log(`FAQ ${index + 1}:`, {
           id: faq.id,
@@ -190,7 +206,6 @@ export default function Home() {
 
       setFaqs(data);
 
-      // Update URL query string
       router.push(
         {
           pathname: router.pathname,
@@ -244,7 +259,11 @@ export default function Home() {
           <div className="results">
             <h2>Search Results ({faqs.length})</h2>
             {faqs.map((faq) => (
-              <FAQEntry key={faq.id} faq={faq} />
+              <FAQEntry 
+                key={faq.id} 
+                faq={faq} 
+                existingFaqSlugs={existingFaqSlugs}
+              />
             ))}
           </div>
         ) : (

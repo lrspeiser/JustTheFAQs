@@ -2,6 +2,7 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import DOMPurify from 'dompurify';
+import { fetchExistingFaqSlugs } from '../lib/db'; // Import function to check existing FAQ slugs
 
 export default function FAQPage() {
     const router = useRouter();
@@ -11,6 +12,7 @@ export default function FAQPage() {
     const [error, setError] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [searching, setSearching] = useState(false);
+    const [existingFaqSlugs, setExistingFaqSlugs] = useState([]);
 
     useEffect(() => {
         // Initialize search query from URL if it exists
@@ -18,6 +20,18 @@ export default function FAQPage() {
             setSearchQuery(q);
         }
     }, [q]);
+
+    useEffect(() => {
+        async function loadFaqSlugs() {
+            try {
+                const slugs = await fetchExistingFaqSlugs();
+                setExistingFaqSlugs(slugs || []);
+            } catch (error) {
+                console.error("Error fetching existing FAQ slugs:", error);
+            }
+        }
+        loadFaqSlugs();
+    }, []);
 
     useEffect(() => {
         if (!slug) return;
@@ -115,40 +129,44 @@ export default function FAQPage() {
                                 }}></div>
                             </div>
 
-                          {faq.cross_links.length > 0 && (
-                              <div className="related-links">
-                                  <span>Related Pages:</span>
-                                  <ul>
-                                      {faq.cross_links.map((link, index) => {
-                                          let displayName = link.trim();
+                            {faq.cross_links.length > 0 && (
+                                <div className="related-links">
+                                    <span>Related Pages:</span>
+                                    <ul>
+                                        {faq.cross_links.map((link, index) => {
+                                            let displayName = link.trim();
+                                            if (displayName.startsWith("/wiki/")) {
+                                                displayName = displayName.replace("/wiki/", "");
+                                            }
 
-                                          // Ensure we're not prepending "/wiki/"
-                                          if (displayName.startsWith("/wiki/")) {
-                                              displayName = displayName.replace("/wiki/", "");
-                                          }
+                                            // Format slug properly for URL routing (ensure lowercase)
+                                            const linkSlug = displayName
+                                                .replace(/_/g, '-') // Convert underscores to dashes
+                                                .replace(/[^a-zA-Z0-9-]+/g, '') // Remove invalid characters
+                                                .toLowerCase();
 
-                                          // Format slug properly for URL routing (ensure lowercase)
-                                          const linkSlug = displayName
-                                              .replace(/_/g, '-') // Convert underscores to dashes
-                                              .replace(/[^a-zA-Z0-9-]+/g, '') // Remove invalid characters
-                                              .toLowerCase(); // ✅ Ensure lowercase for routing
+                                            const isPageAvailable = existingFaqSlugs.includes(linkSlug);
 
-                                          return (
-                                              <li key={index}>
-                                                  <a
-                                                      href={`/${linkSlug}`} // ✅ Ensuring lowercase for routing
-                                                      className="related-topic-link"
-                                                  >
-                                                      {displayName.replace(/-/g, ' ')} {/* Keep readable capitalization */}
-                                                  </a>
-                                              </li>
-                                          );
-                                      })}
-                                  </ul>
-                              </div>
-                          )}
-
-
+                                            return (
+                                                <li key={index}>
+                                                    {isPageAvailable ? (
+                                                        <a
+                                                            href={`/${linkSlug}`} // ✅ Ensuring lowercase for routing
+                                                            className="related-topic-link"
+                                                        >
+                                                            {displayName.replace(/-/g, ' ')} {/* Keep readable capitalization */}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="unavailable-topic">
+                                                            {displayName.replace(/-/g, ' ')}
+                                                        </span>
+                                                    )}
+                                                </li>
+                                            );
+                                        })}
+                                    </ul>
+                                </div>
+                            )}
                         </article>
                     ))}
                 </div>
@@ -156,3 +174,4 @@ export default function FAQPage() {
         </>
     );
 }
+

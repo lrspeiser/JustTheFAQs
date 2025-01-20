@@ -20,15 +20,10 @@ JustTheFAQs is a Node.js-based application designed to generate structured FAQ p
 ├── pages/
 │   ├── api/
 │   │   ├── scripts/
-│   │   │   ├── clearDatabase.js          # Clears database, necessary for maintenance.
 │   │   │   ├── fetchAndGenerate.js       # Core script for fetching and generating FAQs.
-│   │   │   ├── generateEmbeddings.js     # Essential for embedding generation.
 │   │   ├── faqs.js                       # API route for FAQs.
-│   │   ├── fetch-and-generate.js         # API route that invokes fetchAndGenerate.js.
 │   │   ├── search.js                     # API route for searching FAQs.
-functionality.
-│   ├── fetch-and-generate.js              # API or frontend script to trigger fetchAndGenerate.
-│   ├── _app.tsx                           # Next.js app-level component.
+│   ├── [slug].js                         # Dynamic route for individual FAQ pages.
 │   ├── index.js                           # Entry point for the frontend.
 ├── stream.js                               # Likely handles streaming of data.
 ```
@@ -114,39 +109,41 @@ npm start
 
 ## Database Schema
 
-### `raw_faqs`
-| Column             | Data Type                | Description                           |
-|--------------------|--------------------------|---------------------------------------|
-| id                 | INTEGER                 | Primary key                           |
-| url                | TEXT                    | Original URL of the FAQ source        |
-| title              | TEXT                    | Title of the FAQ                      |
-| timestamp          | TIMESTAMP               | Timestamp when the FAQ was created    |
-| question           | TEXT                    | The FAQ question                      |
-| answer             | TEXT                    | The FAQ answer                        |
-| media_link         | TEXT                    | Link to associated media              |
-| human_readable_name| TEXT                    | User-friendly FAQ title               |
-| last_updated       | TIMESTAMP               | Last update timestamp                 |
-| subheader          | TEXT                    | Section subheader                     |
-| cross_link         | TEXT                    | Related FAQ links                     |
-| image_urls         | TEXT                    | Additional image URLs                 |
-| faq_file_id        | INTEGER                 | Foreign key linking to faq_files      |
-
-### `faq_files`
-| Column             | Data Type                | Description                           |
-|--------------------|--------------------------|---------------------------------------|
-| id                 | INTEGER                 | Primary key                           |
-| slug               | TEXT                    | Unique identifier for the FAQ         |
-| file_path          | TEXT                    | Path to the FAQ file                  |
-| created_at         | TIMESTAMP               | Creation timestamp                    |
-| human_readable_name| TEXT                    | User-friendly name of the FAQ         |
+The application uses **Supabase (PostgreSQL)** to store FAQ data. Below is the database schema with column details, data types, and constraints.
 
 ### `faq_embeddings`
-| Column             | Data Type                | Description                           |
-|--------------------|--------------------------|---------------------------------------|
-| id                 | INTEGER                 | Primary key                           |
-| faq_id             | INTEGER                 | Foreign key referencing raw_faqs(id)  |
-| question           | TEXT                    | The FAQ question                      |
-| embedding          | VECTOR                  | Embedding vector for similarity search |
+| Column    | Data Type    | Nullable | Default | Constraint |
+|-----------|-------------|----------|---------|------------|
+| id        | bigint      | NO       |         | PRIMARY KEY |
+| faq_id    | bigint      | YES      |         | FOREIGN KEY (references `raw_faqs.id`) |
+| question  | text        | YES      |         |            |
+| embedding | USER-DEFINED | YES     |         |            |
+
+### `faq_files`
+| Column              | Data Type                   | Nullable | Default | Constraint  |
+|---------------------|---------------------------|----------|---------|------------|
+| id                 | integer                     | NO       |         | PRIMARY KEY |
+| slug               | text                        | NO       |         | UNIQUE      |
+| created_at         | timestamp without time zone | YES      | now()   |            |
+| human_readable_name| text                        | YES      |         |            |
+
+### `raw_faqs`
+| Column              | Data Type                   | Nullable | Default            | Constraint |
+|---------------------|---------------------------|----------|-------------------|------------|
+| id                 | integer                     | NO       |                   | PRIMARY KEY |
+| url                | text                        | NO       |                   |            |
+| title              | text                        | NO       |                   |            |
+| timestamp          | timestamp without time zone | NO       | CURRENT_TIMESTAMP |            |
+| question           | text                        | NO       |                   |            |
+| answer             | text                        | NO       |                   |            |
+| media_link         | text                        | YES      |                   | Stores associated media (e.g., images) |
+| human_readable_name| text                        | YES      |                   |            |
+| last_updated       | timestamp without time zone | YES      |                   |            |
+| subheader          | text                        | YES      |                   |            |
+| cross_link         | text                        | YES      |                   |            |
+| faq_file_id        | integer                     | YES      |                   | FOREIGN KEY (references `faq_files.id`) |
+
+> **Note:** The `image_urls` column exists but is not currently in use. The `media_link` column is the primary reference for associated images.
 
 ## Contributing
 Contributions are welcome! Please submit a pull request or open an issue on the GitHub repository.

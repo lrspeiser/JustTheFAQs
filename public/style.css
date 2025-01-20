@@ -359,3 +359,16 @@ img {
 .log-line:last-child {
   border-bottom: none;
 }
+
+.unavailable-topic {
+  color: gray;
+  cursor: default;
+  text-decoration: none;
+}
+
+.related-links .unavailable-topic {
+  color: #808080;  /* A medium gray color */
+  cursor: default;
+  text-decoration: none;
+  font-weight: normal;  /* Explicitly set non-bold text */
+}
