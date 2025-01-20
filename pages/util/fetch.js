@@ -1,3 +1,4 @@
+// pages/util/fetch.js
 import React, { useState } from 'react';
 
 export default function FetchAndGeneratePage() {
@@ -7,8 +8,9 @@ export default function FetchAndGeneratePage() {
   const handleFetchAndGenerate = async () => {
     setLoading(true);
     setStatus('Starting the fetch and generate process...');
+
     try {
-      const response = await fetch('/api/fetch-and-generate', {
+      const response = await fetch('/api/util/fetch-and-generate', {
         method: 'POST',
       });
 
@@ -27,22 +29,22 @@ export default function FetchAndGeneratePage() {
   };
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-      <h1>Fetch and Generate</h1>
-      <p>Click the button below to start the fetch and generate process.</p>
+    <div className="container mx-auto p-4 font-sans">
+      <h1 className="text-2xl font-bold mb-4">Fetch and Generate</h1>
+      <p className="mb-4">Click the button below to start the fetch and generate process.</p>
+
       <button
         onClick={handleFetchAndGenerate}
         disabled={loading}
-        style={{
-          padding: '10px 20px',
-          fontSize: '16px',
-          cursor: loading ? 'not-allowed' : 'pointer',
-        }}
+        className={`px-4 py-2 text-white bg-blue-500 rounded
+          ${loading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}
+        `}
       >
         {loading ? 'Processing...' : 'Start Fetch and Generate'}
       </button>
+
       {status && (
-        <div style={{ marginTop: '20px', color: loading ? 'gray' : 'black' }}>
+        <div className={`mt-4 ${loading ? 'text-gray-500' : 'text-black'}`}>
           {status}
         </div>
       )}
