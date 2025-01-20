@@ -15,7 +15,7 @@ console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_A
 
 let globalSupabase = null; // Ensure single instance
 const BATCH_SIZE = 32;
-const MEDIA_PAGE_LIMIT = 100; // Change this value if you want to process more pages
+const MEDIA_PAGE_LIMIT = 1; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 
 let embedder = null;
@@ -1144,6 +1144,8 @@ async function startProcess() {
     process.exit(1);
   }
 }
+
+export { main };
 
 // Call the function once (prevents duplication)
 startProcess();

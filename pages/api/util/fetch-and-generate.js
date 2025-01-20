@@ -1,10 +1,8 @@
 // pages/api/util/fetch-and-generate.js
 import { initClients } from '../../../lib/db';
-import OpenAI from "openai";
-import * as cheerio from "cheerio";
-import { createClient } from "@supabase/supabase-js";
-import dotenv from "dotenv";
-dotenv.config();
+import { main } from '../scripts/fetchAndGenerate';  // Updated path to point to pages/api/scripts
+
+const MEDIA_PAGE_LIMIT = 1;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -24,12 +22,14 @@ export default async function handler(req, res) {
       });
     }
 
-    // Here you would call your fetch and generate logic
-    // For now, returning a success message
+    // Start the main process
+    console.log("[API] Calling main process...");
+    await main(openai, supabase, MEDIA_PAGE_LIMIT);
+
     console.log('[API] Process completed successfully');
     return res.status(200).json({ 
       success: true, 
-      message: 'Fetch and generate process started successfully.' 
+      message: 'Fetch and generate process completed successfully.' 
     });
 
   } catch (error) {
