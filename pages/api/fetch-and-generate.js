@@ -1,5 +1,4 @@
-import { exec } from "child_process";
-import path from "path";
+import { main } from "../../api/scripts/fetchAndGenerate"; // Import backend script
 
 export const config = {
   api: {
@@ -13,33 +12,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log("[FetchAndGenerate API] Received request...");
+    console.log("[FetchAndGenerate API] 🚀 Received request...");
 
-    // Ensure `fetchAndGenerate.js` exists
-    const scriptPath = path.join(process.cwd(), "scripts/fetchAndGenerate.js");
+    // ✅ Run backend script WITHOUT a target parameter
+    await main(); 
 
-    // ✅ Extract target from request or default to 2
-    const target = parseInt(req.body?.target, 10) || 2;
-
-    if (isNaN(target) || target <= 0) {
-      throw new Error(`[FetchAndGenerate API] Invalid target value: ${req.body?.target}`);
-    }
-
-    console.log(`[FetchAndGenerate API] 🚀 Starting script with target: ${target}`);
-
-    // ✅ Run script asynchronously in a detached process
-    exec(`node ${scriptPath} ${target} &`, (error, stdout, stderr) => {
-      if (error) {
-        console.error("[FetchAndGenerate API] ❌ Script execution failed:", error);
-        return;
-      }
-      console.log("[FetchAndGenerate API] ✅ Script execution started:", stdout || stderr);
-    });
-
-    // ✅ Immediately return success while script runs in background
     return res.status(200).json({
       success: true,
-      message: `Generation process started for ${target} pages.`,
+      message: `Generation process started.`,
     });
 
   } catch (error) {
