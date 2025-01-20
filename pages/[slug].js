@@ -2,11 +2,11 @@ import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import DOMPurify from 'dompurify';
-import { fetchExistingFaqSlugs } from '../lib/db'; // Import function to check existing FAQ slugs
+import { supabase } from '../lib/db';  // Import supabase client directly
 
 export default function FAQPage() {
     const router = useRouter();
-    const { slug, q } = router.query;  // Get search query if it exists
+    const { slug, q } = router.query;
     const [pageData, setPageData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -15,7 +15,6 @@ export default function FAQPage() {
     const [existingFaqSlugs, setExistingFaqSlugs] = useState([]);
 
     useEffect(() => {
-        // Initialize search query from URL if it exists
         if (q) {
             setSearchQuery(q);
         }
@@ -24,8 +23,12 @@ export default function FAQPage() {
     useEffect(() => {
         async function loadFaqSlugs() {
             try {
-                const slugs = await fetchExistingFaqSlugs();
-                setExistingFaqSlugs(slugs || []);
+                const { data, error } = await supabase
+                    .from('faq_files')
+                    .select('slug');
+
+                if (error) throw error;
+                setExistingFaqSlugs(data.map(item => item.slug) || []);
             } catch (error) {
                 console.error("Error fetching existing FAQ slugs:", error);
             }
@@ -174,4 +177,3 @@ export default function FAQPage() {
         </>
     );
 }
-
