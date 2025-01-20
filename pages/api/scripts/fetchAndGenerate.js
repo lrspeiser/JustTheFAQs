@@ -16,6 +16,7 @@ console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_A
 let globalSupabase = null; // Ensure single instance
 const BATCH_SIZE = 32;
 const MEDIA_PAGE_LIMIT = 2; // Change this value if you want to process more pages
+let processedCount = 0; // Track the number of successfully processed pages
 
 let embedder = null;
 
@@ -131,7 +132,7 @@ const tools = [
     type: "function",
     function: {
       name: "generate_structured_faqs",
-      description: "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs.",
+      description: "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links",
       parameters: {
         type: "object",
         properties: {
@@ -144,8 +145,8 @@ const tools = [
               type: "object",
               properties: {
                 subheader: { type: "string", description: "The subheader under which this FAQ falls." },
-                question: { type: "string", description: "A question derived from the content." },
-                answer: { type: "string", description: "The answer to the question." },
+                question: { type: "string", description: "A question derived from the content. These should be interesting questions where we have something unique in the answer to share." },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience." },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
@@ -170,7 +171,7 @@ const tools = [
     type: "function",
     function: {
       name: "generate_additional_faqs",
-      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that weren't already asked. Make sure to expand upon those answers comprehensively. If there are any unused images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass.",
+      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that weren't already asked. Make sure to expand upon those answers comprehensively. If there are any unused images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass. Do NOT change the case of Wikipedia page titles or cross-links",
       parameters: {
         type: "object",
         properties: {
@@ -183,8 +184,8 @@ const tools = [
               type: "object",
               properties: {
                 subheader: { type: "string", description: "The subheader under which this FAQ falls." },
-                question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass." },
-                answer: { type: "string", description: "The comprehensive answer to the question." },
+                question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass. These should be interesting questions where we have something unique in the answer to share." },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience." },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
@@ -237,11 +238,12 @@ const fetchWikipediaMetadata = async (title) => {
   }
 };
 
-const saveMetadata = async (slug, humanReadableName, supabase) => {
+const saveMetadata = async (title, humanReadableName, supabase) => {
+  const slug = formatWikipediaSlug(title); 
+
   const data = {
-    slug,
+    slug,  
     human_readable_name: humanReadableName,
-    file_path: "",
     created_at: new Date().toISOString(),
   };
 
@@ -289,6 +291,7 @@ const saveMetadata = async (slug, humanReadableName, supabase) => {
 
 
 
+
 const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
   // Estimate tokens based on characters (rough estimate: 4 characters = 1 token)
   const charLimit = maxTokens * 4;
@@ -318,11 +321,14 @@ const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
   try {
     const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
 
+    // Ensure images are passed in the prompt
     const contentWithImages = `
       ${truncatedContent}
       Relevant Images:
       ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
     `;
+
+    console.log(`[generateStructuredFAQs] Sending ${truncatedMediaLinks.length} images to OpenAI for processing.`);
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -330,7 +336,7 @@ const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
         {
           role: "system",
           content:
-            "You are a brilliant writer that extracts structured FAQs from Wikipedia content. Start with the most interesting questions and use all of the content from the entire page to generate fascinating and accurate answers. Include all media links provided.",
+            "You are a brilliant writer that extracts structured FAQs from Wikipedia content. Start with the most interesting questions and use all of the content from the entire page to generate fascinating and accurate answers. **Use the images provided whenever relevant to the FAQ.**",
         },
         {
           role: "user",
@@ -358,6 +364,8 @@ ${contentWithImages}`,
     return null;
   }
 };
+
+
 
 
 const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
@@ -426,12 +434,15 @@ Requirements:
 
 
 const processWithEnrichment = async (title, content, images, url, humanReadableName, lastUpdated) => {
-  console.log(`[processWithEnrichment] Starting enrichment process for "${title}"`);
+  console.log(`[processWithEnrichment] Processing "${title}"`);
 
-  // First pass - generate initial FAQs
+  // **Pass ALL image URLs to OpenAI for FAQ generation**
+  console.log(`[processWithEnrichment] Passing ${images.length} images to OpenAI for FAQ generation.`);
+
+  // **First Pass: Generate Initial FAQs**
   const structuredFAQs = await generateStructuredFAQs(title, content, lastUpdated, images);
   if (!structuredFAQs) {
-    console.error(`[processWithEnrichment] Initial FAQ generation failed for "${title}"`);
+    console.error(`[processWithEnrichment] ❌ Initial FAQ generation failed for "${title}"`);
     return false;
   }
 
@@ -439,17 +450,24 @@ const processWithEnrichment = async (title, content, images, url, humanReadableN
   const { faqs, human_readable_name, last_updated } = structuredFAQs;
   await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
 
-  // Second pass - generate additional FAQs
+  // **Second Pass: Generate Additional FAQs**
   console.log(`[processWithEnrichment] Starting second pass for "${title}"`);
   const additionalFAQs = await generateAdditionalFAQs(title, content, faqs, images);
 
   if (additionalFAQs && additionalFAQs.length > 0) {
-    console.log(`[processWithEnrichment] Found ${additionalFAQs.length} additional FAQs for "${title}"`);
-    await saveStructuredFAQ(title, url, human_readable_name, last_updated, additionalFAQs);
+    console.log(`[processWithEnrichment] ✅ Found ${additionalFAQs.length} additional FAQs for "${title}"`);
+    await saveAdditionalFAQs(title, additionalFAQs, url, human_readable_name, last_updated);
+  } else {
+    console.log(`[processWithEnrichment] No additional FAQs were generated for "${title}".`);
   }
 
   return true;
 };
+
+
+
+
+
 
 
 
@@ -475,7 +493,7 @@ async function insertDataToSupabase(tableName, data) {
       throw new Error(`No data returned from ${tableName} insert`);
     }
 
-    console.log(`[Supabase] Successfully inserted into ${tableName}:`, insertedData);
+    // console.log(`[Supabase] Successfully inserted into ${tableName}:`, insertedData);
     return insertedData;
   } catch (error) {
     console.error(`[Supabase] Unexpected error during insert into ${tableName}:`, error.message);
@@ -483,93 +501,189 @@ async function insertDataToSupabase(tableName, data) {
   }
 }
 
+const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName, lastUpdated) => {
+  if (!additionalFaqs || !additionalFaqs.length) {
+    console.error("[saveAdditionalFAQs] No additional FAQs to save.");
+    return;
+  }
 
+  const slug = formatWikipediaSlug(title);
+  console.log(`[saveAdditionalFAQs] Fetching FAQ file ID for "${slug}"`);
+
+  const { data: faqFile, error } = await supabase
+    .from("faq_files")
+    .select("id")
+    .eq("slug", slug)
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !faqFile) {
+    console.error(`[saveAdditionalFAQs] ❌ FAQ file not found for "${slug}". Skipping.`);
+    return;
+  }
+
+  console.log(`[saveAdditionalFAQs] Found FAQ file ID: ${faqFile.id}`);
+
+  for (const faq of additionalFaqs) {
+    try {
+      const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
+
+      const embeddingText = `
+        Page Title: ${title}
+        Subcategory: ${faq.subheader || "General"}
+        Question: ${faq.question}
+        Answer: ${faq.answer}
+        Related Pages: ${relatedPages}
+      `.trim();
+
+      let mediaLink = faq.media_links?.[0] || null;
+      if (mediaLink && typeof mediaLink === 'object' && mediaLink.url) {
+        mediaLink = mediaLink.url;
+      }
+
+      const faqData = {
+        faq_file_id: faqFile.id,
+        url: url || `https://en.wikipedia.org/wiki/${title}`,
+        title: title,
+        human_readable_name: humanReadableName, // ✅ Ensure this is saved
+        last_updated: lastUpdated, // ✅ Ensure this is saved
+        subheader: faq.subheader || null,
+        question: faq.question,
+        answer: faq.answer,
+        cross_link: relatedPages,
+        media_link: mediaLink,
+      };
+
+      console.log(`[saveAdditionalFAQs] Saving additional FAQ: "${faq.question}"`);
+      const savedFaq = await insertDataToSupabase('raw_faqs', faqData);
+
+      if (!savedFaq) {
+        throw new Error('Failed to save additional FAQ');
+      }
+
+      // **Generate and Save Embedding**
+      console.log(`[saveAdditionalFAQs] Generating embedding for additional FAQ: "${faq.question}"`);
+      const embedding = await generateEmbedding(embeddingText);
+
+      const embeddingData = {
+        faq_id: savedFaq.id,
+        question: faq.question,
+        embedding,
+      };
+
+      await insertDataToSupabase('faq_embeddings', embeddingData);
+      console.log(`[saveAdditionalFAQs] ✅ Saved additional FAQ and embedding for: "${faq.question}"`);
+
+    } catch (error) {
+      console.error(`[saveAdditionalFAQs] ❌ Error processing additional FAQ: "${faq.question}"`, error);
+    }
+  }
+};
+
+
+
+
+
+
+
+
+
+
+const formatWikipediaSlug = (title) => title.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
 
 
 const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
+  if (!url) {
+    console.error(`[saveStructuredFAQ] ❌ URL is missing for "${title}". Skipping...`);
+    return;
+  }
+
   if (!faqs || !faqs.length) {
     console.error("[saveStructuredFAQ] No FAQs to save.");
     return;
   }
 
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const slug = formatWikipediaSlug(title);
   const faqFileId = await saveMetadata(slug, humanReadableName, supabase);
 
   if (!faqFileId) {
-    console.error("[saveStructuredFAQ] Failed to get or create FAQ file entry.");
+    console.error("[saveStructuredFAQ] ❌ Failed to get or create FAQ file entry.");
     return;
   }
 
   console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
 
-  // Process FAQs in batches
-  const BATCH_SIZE = 5;
-  const batches = [];
+  for (const faq of faqs) {
+    try {
+      const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
 
-  for (let i = 0; i < faqs.length; i += BATCH_SIZE) {
-    batches.push(faqs.slice(i, i + BATCH_SIZE));
-  }
+      // **Fix: Extract actual URL if media_links contain an object**
+      let mediaUrl = faq.media_links?.[0] || null;
+      if (mediaUrl && typeof mediaUrl === "object" && mediaUrl.url) {
+        mediaUrl = mediaUrl.url; // Extract the actual URL
+      }
 
-  for (const batch of batches) {
-    await Promise.all(
-      batch.map(async (faq) => {
-        try {
-          // 🔹 Format related pages properly
-          const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
+      const embeddingText = `
+        Page Title: ${title}
+        Subcategory: ${faq.subheader || "General"}
+        Question: ${faq.question}
+        Answer: ${faq.answer}
+        Related Pages: ${relatedPages}
+      `.trim();
 
-          // 🔹 Construct the full text for embedding
-          const embeddingText = `
-            Page Title: ${title}
-            Subcategory: ${faq.subheader || "General"}
-            Question: ${faq.question}
-            Answer: ${faq.answer}
-            Related Pages: ${relatedPages}
-          `.trim();
+      const faqData = {
+        faq_file_id: faqFileId,
+        url,
+        title,
+        human_readable_name: humanReadableName,
+        last_updated: lastUpdated,
+        subheader: faq.subheader || null,
+        question: faq.question,
+        answer: faq.answer,
+        cross_link: relatedPages,
+        media_link: mediaUrl, // **Fixed media URL**
+      };
 
-          // Prepare FAQ data for storage
-          const faqData = {
-            faq_file_id: faqFileId,
-            url,
-            title,
-            human_readable_name: humanReadableName,
-            last_updated: lastUpdated,
-            subheader: faq.subheader || null,
-            question: faq.question,
-            answer: faq.answer,
-            cross_link: relatedPages,
-            media_link: faq.media_links?.[0] || null,
-            image_urls: faq.media_links ? faq.media_links.join(", ") : null,
-          };
+      console.log(`[saveStructuredFAQ] Saving FAQ: "${faq.question}"`);
+      const savedFaq = await insertDataToSupabase('raw_faqs', faqData);
 
-          // Save FAQ into the database
-          console.log(`[saveStructuredFAQ] Saving FAQ: "${faq.question}"`);
-          const savedFaq = await insertDataToSupabase('raw_faqs', faqData);
+      if (!savedFaq) {
+        throw new Error('Failed to save FAQ');
+      }
 
-          if (!savedFaq) {
-            throw new Error('Failed to save FAQ');
-          }
+      // **Generate and Save Embedding**
+      console.log(`[saveStructuredFAQ] Generating embedding for FAQ: "${faq.question}"`);
+      const embedding = await generateEmbedding(embeddingText);
 
-          // 🔹 Generate and save the composite embedding
-          console.log(`[saveStructuredFAQ] Generating embedding for FAQ: "${faq.question}"`);
-          const embedding = await generateEmbedding(embeddingText);
+      const embeddingData = {
+        faq_id: savedFaq.id,
+        question: faq.question,
+        embedding,
+      };
 
-          // Save embedding in `faq_embeddings`
-          const embeddingData = {
-            faq_id: savedFaq.id,
-            question: faq.question,
-            embedding
-          };
+      await insertDataToSupabase('faq_embeddings', embeddingData);
+      console.log(`[saveStructuredFAQ] ✅ Saved FAQ and embedding for: "${faq.question}"`);
 
-          await insertDataToSupabase('faq_embeddings', embeddingData);
-          console.log(`[saveStructuredFAQ] ✅ Saved FAQ and embedding for: "${faq.question}"`);
-
-        } catch (error) {
-          console.error(`[saveStructuredFAQ] Error processing FAQ: "${faq.question}"`, error);
-        }
-      })
-    );
+    } catch (error) {
+      console.error(`[saveStructuredFAQ] ❌ Error processing FAQ: "${faq.question}"`, error);
+    }
   }
 };
+
+
+const convertWikipediaPathToUrl = (path) => {
+    if (!path.startsWith("/wiki/")) {
+        console.error(`[convertWikipediaPathToUrl] Invalid Wikipedia path: ${path}`);
+        return null;
+    }
+    const wikipediaUrl = `https://en.wikipedia.org${path}`;
+    console.log(`[convertWikipediaPathToUrl] Converted URL: ${wikipediaUrl}`);
+    return wikipediaUrl;
+};
+
+
+
+
 
 
 
@@ -667,15 +781,17 @@ async function fetchMediaLinksFromFAQs() {
     const { data, error } = await supabase
       .from("raw_faqs")
       .select("media_link")
-      .not("media_link", "is", null) // Filter out null media links
-      .limit(50);  // Fetch up to 50 media links
+      .not("media_link", "is", null) // Ensure we're only getting non-null media links
+      .limit(50); // Fetch up to 50 media links
 
     if (error) {
       console.error("[fetchMediaLinksFromFAQs] ❌ Error retrieving media links:", error.message);
       return [];
     }
 
-    const uniqueMediaLinks = [...new Set(data.map(faq => faq.media_link).filter(Boolean))]; // Remove duplicates
+    // Collect unique media URLs
+    const uniqueMediaLinks = [...new Set(data.map(faq => faq.media_link).filter(Boolean))];
+
     console.log(`[fetchMediaLinksFromFAQs] Found ${uniqueMediaLinks.length} media links.`);
     return uniqueMediaLinks;
   } catch (error) {
@@ -683,6 +799,7 @@ async function fetchMediaLinksFromFAQs() {
     return [];
   }
 }
+
 
 // **Step 2: Fetch Wikipedia Titles for Media Links**
 async function fetchWikipediaTitlesForMedia(mediaLinks) {
@@ -714,13 +831,13 @@ async function fetchWikipediaTitlesForMedia(mediaLinks) {
 
 // **Step 3: Check if Wikipedia Title Already Processed**
 async function isTitleProcessed(title) {
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const normalizedSlug = title.replace(/[^a-zA-Z0-9]+/g, "-"); // Keep the original case
 
   try {
     const { data, error } = await supabase
       .from("faq_files")
       .select("slug")
-      .eq("slug", slug)
+      .eq("slug", normalizedSlug)  // ✅ Ensuring case consistency
       .limit(1)
       .maybeSingle();
 
@@ -735,6 +852,7 @@ async function isTitleProcessed(title) {
     return true;
   }
 }
+
 
 // **Step 4: Fetch Wikipedia Page Content for Media Titles**
 async function fetchWikipediaPage(title) {
@@ -833,185 +951,166 @@ async function processWikipediaMediaPages(maxPages) {
   return processedCount;
 }
 
+const isPageAlreadyProcessed = async (title) => {
+  const slug = formatWikipediaSlug(title);
+
+  const { data: existingEntry, error } = await supabase
+    .from("faq_files")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  return !!existingEntry; // Returns true if the page already exists
+};
 
 
-
-export async function main(openai, supabase, newPagesTarget = 2) {
-  console.log("[main] Verifying received clients...");
-  console.log("[main] OpenAI client:", openai ? "✅ Initialized" : "❌ Missing");
-  console.log("[main] Supabase client:", supabase ? "✅ Initialized" : "❌ Missing");
-
-  if (!openai || !supabase) {
-    console.error("[main] ❌ Missing required clients. Exiting...");
-    throw new Error("[main] Missing required clients");
-  }
-
+async function main() {
   console.log("[main] Starting FAQ generation process...");
+
   let processedCount = 0;
-  let offset = 0;
 
-  try {
-    console.log("[main] Checking Supabase client initialization...");
-    console.log("[Supabase] Client Instance:", supabase ? "Initialized" : "❌ Not Initialized");
+  // **Step 1: Process Related Wikipedia Links (cross_links)**
+  console.log("[main] Checking for related Wikipedia links that are missing pages...");
 
-    console.log("[main] Testing Supabase connection...");
-    const { data: connectionTest, error: connectionError } = await supabase.rpc("test_connection");
-    if (connectionError) {
-      throw new Error(`[Supabase] Connection test failed: ${connectionError.message}`);
-    }
-    console.log("[Supabase] Connection test successful:", connectionTest);
+  const { data: relatedLinks, error: relatedLinksError } = await supabase
+    .from("raw_faqs")
+    .select("cross_link")
+    .not("cross_link", "is", null)
+    .limit(50); // Get up to 50 cross-links to process
 
-    // **Step 1: Process Wikipedia Media-Linked Pages First**
-    console.log("[main] Checking for media-linked Wikipedia pages...");
-    processedCount += await processWikipediaMediaPages(newPagesTarget - processedCount);
-    console.log(`[main] Processed ${processedCount} pages from media-linked sources.`);
+  if (relatedLinksError) {
+    console.error("[main] ❌ Error retrieving related links:", relatedLinksError.message);
+  } else {
+    const uniqueRelatedTitles = [...new Set(relatedLinks.flatMap(faq => faq.cross_link.split(',').map(link => link.trim())))];
 
-    // **Step 2: Check and Process Related Wikipedia Links (Cross-Links)**
-    if (processedCount < newPagesTarget) {
-      console.log(`[main] Checking for related Wikipedia links from stored FAQs...`);
+    for (const path of uniqueRelatedTitles) {
+      if (processedCount >= MEDIA_PAGE_LIMIT) {
+        console.log(`[main] ✅ Target reached after processing related links.`);
+        return;
+      }
 
-      const { data: relatedLinks, error: relatedLinksError } = await supabase
-        .from("raw_faqs")
-        .select("cross_link")
-        .not("cross_link", "is", null)  // Only get non-null related links
-        .limit(50);  // Get up to 50 cross-links to process
+      // Convert "/wiki/Page_Name" -> "https://en.wikipedia.org/wiki/Page_Name"
+      const url = convertWikipediaPathToUrl(path);
+      if (!url) {
+        console.warn(`[main] Invalid Wikipedia path: ${path}. Skipping...`);
+        continue;
+      }
 
-      if (relatedLinksError) {
-        console.error("[main] ❌ Error retrieving related links:", relatedLinksError.message);
+      // Extract Wikipedia title from the path
+      const title = path.replace(/^\/wiki\//, "").replace(/_/g, " ");
+      console.log(`[main] Processing related Wikipedia page: "${title}"`);
+
+      // Check if this page already exists
+      const { data: existingEntry, error: existenceError } = await supabase
+        .from("faq_files")
+        .select("id")
+        .eq("slug", formatWikipediaSlug(title))
+        .limit(1)
+        .maybeSingle();
+
+      if (existenceError) {
+        console.error(`[main] Error checking slug existence for "${title}":`, existenceError.message);
+        continue;
+      }
+
+      if (existingEntry) {
+        console.log(`[main] Skipping "${title}" as it already exists in the database.`);
+        continue;
+      }
+
+      // Fetch Wikipedia Metadata and Content
+      const metadata = await fetchWikipediaMetadata(title);
+      const { lastUpdated, humanReadableName } = metadata;
+
+      if (!humanReadableName) {
+        console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
+        continue;
+      }
+
+      const pageData = await fetchWikipediaPage(title);
+      if (!pageData) {
+        console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
+        continue;
+      }
+
+      const { content, images } = pageData;
+      console.log(`[main] Saving metadata for "${title}"`);
+      const metadataSaved = await saveMetadata(title, humanReadableName, supabase);
+
+      if (!metadataSaved) {
+        console.error(`[main] Failed to save metadata for "${title}".`);
+        continue;
+      }
+
+      console.log(`[main] Metadata saved successfully. Proceeding to FAQ generation.`);
+      const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
+
+      if (success) {
+        processedCount++;
+        console.log(`[main] ✅ Successfully processed: ${title} (Total: ${processedCount})`);
       } else {
-        const uniqueRelatedTitles = [...new Set(relatedLinks.flatMap(faq => faq.cross_link.split(',').map(link => link.trim())))];
-
-        for (const title of uniqueRelatedTitles) {
-          if (processedCount >= newPagesTarget) {
-            console.log(`[main] ✅ Target reached after processing related links.`);
-            return;
-          }
-
-          console.log(`[main] Processing related Wikipedia page: "${title}"`);
-          const url = `https://en.wikipedia.org/wiki/${title}`;
-          const metadata = await fetchWikipediaMetadata(title);
-          const { lastUpdated, humanReadableName } = metadata;
-
-          if (!humanReadableName) {
-            console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
-            continue;
-          }
-
-          const pageData = await fetchWikipediaPage(title);
-          if (!pageData) {
-            console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
-            continue;
-          }
-
-          const { content, images } = pageData;
-          console.log(`[main] Saving metadata for "${title}"`);
-          const metadataSaved = await saveMetadata(title, humanReadableName, supabase);
-
-          if (!metadataSaved) {
-            console.error(`[main] Failed to save metadata for "${title}".`);
-            continue;
-          }
-
-          console.log(`[main] Metadata saved. Proceeding to FAQ generation.`);
-          const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
-
-          if (success) {
-            processedCount++;
-            console.log(`[main] ✅ Successfully processed related page: ${title} (Total: ${processedCount})`);
-          } else {
-            console.error(`[main] ❌ Enrichment process failed for "${title}".`);
-          }
-        }
+        console.error(`[main] ❌ Enrichment process failed for "${title}".`);
       }
     }
-
-    // **Step 3: Fetch and Process the Most Popular Wikipedia Pages If Needed**
-    let remainingPages = newPagesTarget - processedCount;
-    if (remainingPages <= 0) {
-      console.log(`[main] ✅ Target reached with related Wikipedia links. No further processing needed.`);
-      return;
-    }
-
-    console.log(`[main] Still need to process ${remainingPages} more pages from the most popular Wikipedia articles.`);
-
-    while (processedCount < newPagesTarget) {
-      const titles = await fetchTopWikipediaPages(offset, 50);
-      if (!titles.length) {
-        console.error("[main] No more titles to fetch. Exiting...");
-        break;
-      }
-
-      for (const title of titles) {
-        if (processedCount >= newPagesTarget) {
-          console.log(`[main] ✅ Processed ${processedCount} pages. Target reached.`);
-          return;
-        }
-
-        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-        console.log(`[main] Checking existence for slug: "${slug}"`);
-
-        const { data: existingEntry, error: existenceError } = await supabase
-          .from("faq_files")
-          .select("slug")
-          .eq("slug", slug)
-          .limit(1)
-          .maybeSingle();
-
-        if (existenceError) {
-          console.error(`[main] Error checking slug existence for "${slug}":`, existenceError.message);
-          continue;
-        }
-
-        if (existingEntry) {
-          console.log(`[main] Skipping "${title}" as it already exists in the database.`);
-          continue;
-        }
-
-        console.log(`[main] Processing title: "${title}", slug: "${slug}"`);
-        const url = `https://en.wikipedia.org/wiki/${title}`;
-        const metadata = await fetchWikipediaMetadata(title);
-        const { lastUpdated, humanReadableName } = metadata;
-
-        if (!humanReadableName) {
-          console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
-          continue;
-        }
-
-        const pageData = await fetchWikipediaPage(title);
-        if (!pageData) {
-          console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
-          continue;
-        }
-
-        const { content, images } = pageData;
-        console.log(`[main] Saving metadata for "${title}"`);
-        const metadataSaved = await saveMetadata(slug, humanReadableName, supabase);
-
-        if (!metadataSaved) {
-          console.error(`[main] Failed to save metadata for "${title}".`);
-          continue;
-        }
-
-        console.log(`[main] Metadata saved successfully. Proceeding to FAQ generation.`);
-        const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
-
-        if (success) {
-          processedCount++;
-          console.log(`[main] ✅ Successfully processed: ${title} (Total: ${processedCount})`);
-        } else {
-          console.error(`[main] ❌ Enrichment process failed for "${title}".`);
-        }
-      }
-
-      offset += 50;
-    }
-
-    console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
-  } catch (error) {
-    console.error(`[main] Unexpected error:`, error.message);
-    throw error;
   }
+
+  // **Step 2: If we haven't reached our limit, process popular Wikipedia pages**
+  if (processedCount < MEDIA_PAGE_LIMIT) {
+    console.log("[main] Fetching top Wikipedia pages...");
+
+    const topPages = await fetchTopWikipediaPages(0, MEDIA_PAGE_LIMIT);
+    for (const title of topPages) {
+      if (processedCount >= MEDIA_PAGE_LIMIT) {
+        console.log(`[main] ✅ Reached target (${MEDIA_PAGE_LIMIT}) after processing top Wikipedia pages.`);
+        return;
+      }
+
+      // Check if this page was already processed
+      const alreadyProcessed = await isPageAlreadyProcessed(title);
+      if (alreadyProcessed) {
+        console.log(`[main] Skipping already processed page: "${title}"`);
+        continue;
+      }
+
+      console.log(`[main] Fetching Wikipedia metadata for: "${title}"`);
+      const metadata = await fetchWikipediaMetadata(title);
+      const { lastUpdated, humanReadableName } = metadata;
+
+      if (!humanReadableName) {
+        console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
+        continue;
+      }
+
+      const pageData = await fetchWikipediaPage(title);
+      if (!pageData) {
+        console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
+        continue;
+      }
+
+      const { content, images } = pageData;
+      console.log(`[main] Saving metadata for "${title}"`);
+      const metadataSaved = await saveMetadata(title, humanReadableName, supabase);
+
+      if (!metadataSaved) {
+        console.error(`[main] Failed to save metadata for "${title}".`);
+        continue;
+      }
+
+      console.log(`[main] Metadata saved successfully. Proceeding to FAQ generation.`);
+      const success = await processWithEnrichment(title, content, images, `https://en.wikipedia.org/wiki/${title}`, humanReadableName, lastUpdated);
+
+      if (success) {
+        processedCount++;
+        console.log(`[main] ✅ Successfully processed: ${title} (Total: ${processedCount})`);
+      } else {
+        console.error(`[main] ❌ Enrichment process failed for "${title}".`);
+      }
+    }
+  }
+
+  console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
 }
+
 
 
 
@@ -1035,7 +1134,7 @@ async function startProcess() {
   console.log("[startProcess] ✅ Clients initialized. Starting main process...");
 
   try {
-    await main(openai, supabase, 2);
+    await main(openai, supabase, MEDIA_PAGE_LIMIT);
     console.log("[startProcess] 🎉 Execution finished successfully.");
     process.exit(0);
   } catch (error) {
