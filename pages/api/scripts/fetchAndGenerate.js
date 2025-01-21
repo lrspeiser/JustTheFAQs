@@ -1,4 +1,4 @@
-// scripts/fetchAndGenerate.js
+//pages/api/scripts/fetchAndGenerate.js
 
 import axios from "axios";
 import OpenAI from "openai";
@@ -15,10 +15,25 @@ console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_A
 
 let globalSupabase = null; // Ensure single instance
 const BATCH_SIZE = 32;
-const MEDIA_PAGE_LIMIT = 500; // Change this value if you want to process more pages
+const MEDIA_PAGE_LIMIT = 50; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
-
 let embedder = null;
+const RETRY_ATTEMPTS = 3;
+const RETRY_DELAY = 1000;
+
+// Add this retry wrapper function
+const withRetry = async (operation, context) => {
+  for (let i = 0; i < RETRY_ATTEMPTS; i++) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (i === RETRY_ATTEMPTS - 1) throw error;
+      console.warn(`[${context}] Attempt ${i + 1} failed, retrying...`);
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (i + 1)));
+    }
+  }
+};
+
 
 const handleError = (context, error) => {
   console.error(`[${context}] Error:`, {
@@ -36,7 +51,40 @@ try {
   handleError('saveStructuredFAQ', error);
 }
 
+const debugDatabaseOperation = async (operation, params) => {
+  try {
+    const { data, error, count } = await supabase
+      .from("processing_queue")
+      .select("*", { count: 'exact' });
 
+    console.log(`[Database Debug] Current queue count: ${count}`);
+    console.log(`[Database Debug] Operation: ${operation}`);
+    console.log(`[Database Debug] Parameters:`, params);
+
+    if (error) {
+      console.error(`[Database Debug] Error:`, error);
+    }
+
+    return { data, error, count };
+  } catch (e) {
+    console.error(`[Database Debug] Exception:`, e);
+    return { error: e };
+  }
+};
+
+const getQueueCount = async () => {
+  const { count, error } = await supabase
+    .from("processing_queue")
+    .select("*", { count: "exact" });
+
+  if (error) {
+    console.error("[Queue Debug] ❌ Error fetching queue count:", error.message);
+    return null;
+  }
+
+  console.log(`[Queue Debug] Current queue count: ${count}`);
+  return count;
+};
 
 async function initEmbedder() {
   if (!embedder) {
@@ -132,7 +180,7 @@ const tools = [
     type: "function",
     function: {
       name: "generate_structured_faqs",
-      description: "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links",
+      description: "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, especially where there are specific details like names, dates, locations, numbers, formulas and so forth, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links",
       parameters: {
         type: "object",
         properties: {
@@ -171,7 +219,7 @@ const tools = [
     type: "function",
     function: {
       name: "generate_additional_faqs",
-      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that weren't already asked. Make sure to expand upon those answers comprehensively. If there are any unused images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass. Do NOT change the case of Wikipedia page titles or cross-links",
+      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that we did not already create questions and answers for. Make sure to expand upon those answers comprehensively, especially where there are specific details like names, dates, locations, numbers, formulas and so forth. If there are any images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass. Do NOT change the case of Wikipedia page titles or cross-links",
       parameters: {
         type: "object",
         properties: {
@@ -239,7 +287,8 @@ const fetchWikipediaMetadata = async (title) => {
 };
 
 const saveMetadata = async (title, humanReadableName, supabase) => {
-  const slug = formatWikipediaSlug(title); 
+  const cleanTitle = title.replace(/^\/wiki\//, ""); // Ensure clean title
+  const slug = formatWikipediaSlug(cleanTitle); 
 
   const data = {
     slug,  
@@ -287,10 +336,275 @@ const saveMetadata = async (title, humanReadableName, supabase) => {
 };
 
 
+const handleBatchProcessingError = async (error, title, type) => {
+  console.error(`[${type}] Error processing ${title}:`, error);
+
+  try {
+    // Update processing queue status if we're using one
+    await updatePageStatus(title, 'failed', error.message);
+  } catch (updateError) {
+    console.error(`Failed to update error status for ${title}:`, updateError);
+  }
+
+  // Return null to indicate failure but allow processing to continue
+  return null;
+};
 
 
+// Utility function to process batches of requests with rate limiting
+async function processBatch(items, batchSize, processFn) {
+  const results = [];
 
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    console.log(`Processing batch ${i / batchSize + 1} of ${Math.ceil(items.length / batchSize)}`);
 
+    // Process each item in the batch concurrently
+    const batchResults = await Promise.all(
+      batch.map(async (item) => {
+        try {
+          return await processFn(item);
+        } catch (error) {
+          console.error(`Error processing item:`, error);
+          return null;
+        }
+      })
+    );
+
+    results.push(...batchResults.filter(Boolean));
+
+    // Add a small delay between batches to respect rate limits
+    if (i + batchSize < items.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+
+  return results;
+}
+
+// Modified generateStructuredFAQs to handle batches
+async function generateStructuredFAQsBatch(pages, batchSize = 5) {
+  const processFAQ = async (page) => {
+    const { title, content, rawTimestamp, images } = page;
+
+    try {
+      const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
+
+      const contentWithImages = `
+        ${truncatedContent}
+        Relevant Images:
+        ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
+      `;
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, especially where there are specific details like names, dates, locations, numbers, formulas and so forth, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links"
+          },
+          {
+            role: "user",
+            content: `Extract structured questions and answers with subheaders,  cross-links and if available images from the following Wikipedia content:
+              Title: ${title}
+              Last Updated: ${rawTimestamp}
+              Content:
+              ${contentWithImages}`
+          }
+        ],
+        tools
+      });
+
+      const toolCall = response.choices[0].message.tool_calls?.[0];
+      if (!toolCall) {
+        console.error(`No function call generated for ${title}.`);
+        return null;
+      }
+
+      return JSON.parse(toolCall.function.arguments);
+    } catch (error) {
+      console.error(`Error generating FAQs for ${title}:`, error);
+      return null;
+    }
+  };
+
+  return await processBatch(pages, batchSize, processFAQ);
+}
+
+// Sliding window for managing two-pass processing
+class ProcessingQueue {
+  constructor(maxConcurrent = 500) {
+    this.maxConcurrent = maxConcurrent;
+    this.activeProcesses = new Map();
+    this.firstPassResults = new Map();
+    this.secondPassQueue = [];
+    this.completed = new Set();
+  }
+
+  async processFirstPass(pages) {
+    if (!Array.isArray(pages)) {
+      console.error("[ProcessingQueue] Expected array of pages, got:", typeof pages);
+      return [];
+    }
+
+    console.log(`[ProcessingQueue] Processing ${pages.length} pages in first pass`);
+    const results = [];
+    let currentIndex = 0;
+
+    try {
+      while (currentIndex < pages.length) {
+        // Fill up to maxConcurrent requests
+        while (this.activeProcesses.size < this.maxConcurrent && currentIndex < pages.length) {
+          const page = pages[currentIndex];
+          if (!this.validatePage(page)) {
+            currentIndex++;
+            continue;
+          }
+
+          const processPromise = this.processPage(page);
+          this.activeProcesses.set(page.title, processPromise);
+          currentIndex++;
+        }
+
+        // Wait for any process to complete
+        if (this.activeProcesses.size > 0) {
+          const [title, promise] = await this.getNextCompletedProcess();
+          try {
+            const result = await promise;
+            this.activeProcesses.delete(title);
+
+            if (result) {
+              results.push(result);
+              await this.queueSecondPass(result);
+              console.log(`[ProcessingQueue] Successfully processed first pass for: ${title}`);
+            }
+          } catch (error) {
+            console.error(`[ProcessingQueue] Error processing page ${title}:`, error);
+            this.activeProcesses.delete(title);
+          }
+        }
+      }
+
+      await this.waitForActiveProcesses();
+      return results;
+
+    } catch (error) {
+      console.error("[ProcessingQueue] Error in processFirstPass:", error);
+      return results;
+    }
+  }
+
+  validatePage(page) {
+    if (!page || typeof page !== 'object') {
+      console.error("[ProcessingQueue] Invalid page object:", page);
+      return false;
+    }
+
+    const requiredFields = ['title', 'content', 'images', 'url', 'humanReadableName', 'lastUpdated'];
+    const missingFields = requiredFields.filter(field => !page[field]);
+
+    if (missingFields.length > 0) {
+      console.error(`[ProcessingQueue] Page missing required fields: ${missingFields.join(', ')}`);
+      return false;
+    }
+
+    return true;
+  }
+
+  async processPage(page) {
+    try {
+      console.log(`[ProcessingQueue] Starting first pass for: ${page.title}`);
+      const { title, content, lastUpdated, images, url, humanReadableName } = page;
+
+      // Generate initial FAQs
+      const structuredFAQs = await generateStructuredFAQs(title, content, lastUpdated, images);
+
+      if (!structuredFAQs) {
+        throw new Error(`Initial FAQ generation failed for "${title}"`);
+      }
+
+      // Save initial FAQs
+      const { faqs } = structuredFAQs;
+      await saveStructuredFAQ(title, url, humanReadableName, lastUpdated, faqs);
+
+      return {
+        title,
+        content,
+        faqs,
+        images,
+        url,
+        humanReadableName,
+        lastUpdated
+      };
+    } catch (error) {
+      console.error(`[ProcessingQueue] Error in processPage for ${page.title}:`, error);
+      return null;
+    }
+  }
+
+  async queueSecondPass(firstPassResult) {
+    try {
+      if (this.activeProcesses.size < this.maxConcurrent) {
+        await this.processSecondPass(firstPassResult);
+      } else {
+        console.log(`[ProcessingQueue] Queuing second pass for: ${firstPassResult.title}`);
+        this.secondPassQueue.push(firstPassResult);
+      }
+    } catch (error) {
+      console.error(`[ProcessingQueue] Error queuing second pass for ${firstPassResult.title}:`, error);
+    }
+  }
+
+  async processSecondPass(firstPassResult) {
+    const { title, content, faqs, images, url, humanReadableName, lastUpdated } = firstPassResult;
+
+    try {
+      console.log(`[ProcessingQueue] Starting second pass for: ${title}`);
+      const additionalFaqs = await generateAdditionalFAQs(title, content, faqs, images);
+
+      if (additionalFaqs && additionalFaqs.length > 0) {
+        await saveAdditionalFAQs(title, additionalFaqs, url, humanReadableName, lastUpdated);
+        console.log(`[ProcessingQueue] Successfully processed second pass for: ${title}`);
+      }
+
+      this.completed.add(title);
+    } catch (error) {
+      console.error(`[ProcessingQueue] Error in second pass for ${title}:`, error);
+    }
+  }
+
+  async getNextCompletedProcess() {
+    const entries = Array.from(this.activeProcesses.entries());
+    return entries[0];
+  }
+
+  async waitForActiveProcesses() {
+    console.log('[ProcessingQueue] Waiting for remaining processes to complete...');
+    while (this.activeProcesses.size > 0 || this.secondPassQueue.length > 0) {
+      // Process any queued second pass items if we have capacity
+      while (this.secondPassQueue.length > 0 && this.activeProcesses.size < this.maxConcurrent) {
+        const nextItem = this.secondPassQueue.shift();
+        if (nextItem) {
+          await this.processSecondPass(nextItem);
+        }
+      }
+
+      // Wait for active processes to complete
+      if (this.activeProcesses.size > 0) {
+        const [title, promise] = await this.getNextCompletedProcess();
+        try {
+          await promise;
+        } catch (error) {
+          console.error(`[ProcessingQueue] Error waiting for process ${title}:`, error);
+        }
+        this.activeProcesses.delete(title);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    console.log('[ProcessingQueue] All processes completed');
+  }
+}
 
 const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
   // Estimate tokens based on characters (rough estimate: 4 characters = 1 token)
@@ -320,85 +634,179 @@ const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
   };
 };
 
+// Add this before the openaiRateLimiter definition
+class RateLimiter {
+  constructor(maxRequests, timeWindow) {
+    this.maxRequests = maxRequests;      // Maximum requests allowed
+    this.timeWindow = timeWindow;        // Time window in milliseconds
+    this.requests = [];                  // Array to track request timestamps
+    this.isPaused = false;              // Flag to control rate limiting
+  }
+
+  async acquireToken() {
+    // Wait if rate limiter is paused
+    while (this.isPaused) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    const now = Date.now();
+
+    // Remove timestamps older than the time window
+    this.requests = this.requests.filter(time => now - time < this.timeWindow);
+
+    // If at capacity, wait until the oldest request expires
+    if (this.requests.length >= this.maxRequests) {
+      const oldestRequest = this.requests[0];
+      const waitTime = this.timeWindow - (now - oldestRequest);
+
+      if (waitTime > 0) {
+        console.log(`[RateLimiter] Rate limit reached. Waiting ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+      }
+
+      // Clean up expired timestamps again after waiting
+      this.requests = this.requests.filter(time => Date.now() - time < this.timeWindow);
+    }
+
+    // Add current request timestamp
+    this.requests.push(Date.now());
+  }
+
+  pause() {
+    this.isPaused = true;
+    console.log('[RateLimiter] Rate limiting paused');
+  }
+
+  resume() {
+    this.isPaused = false;
+    console.log('[RateLimiter] Rate limiting resumed');
+  }
+
+  getCurrentUsage() {
+    const now = Date.now();
+    this.requests = this.requests.filter(time => now - time < this.timeWindow);
+    return this.requests.length;
+  }
+
+  getRemainingCapacity() {
+    return this.maxRequests - this.getCurrentUsage();
+  }
+}
+
+// Initialize the rate limiter for OpenAI API
+const openaiRateLimiter = new RateLimiter(30000, 60000); // 30k requests per minute for gpt-4o-mini
+
 
 const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
-  try {
-    const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
+  const retryAttempts = 3;
+  let lastError = null;
 
-    // Ensure images are passed in the prompt
-    const contentWithImages = `
-      ${truncatedContent}
-      Relevant Images:
-      ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
-    `;
+  for (let attempt = 0; attempt < retryAttempts; attempt++) {
+    try {
+      // Wait for rate limit token
+      await openaiRateLimiter.acquireToken();
 
-    console.log(`[generateStructuredFAQs] Sending ${truncatedMediaLinks.length} images to OpenAI for processing.`);
+      const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a brilliant writer that extracts structured FAQs from Wikipedia content. Start with the most interesting questions and use all of the content from the entire page to generate fascinating and accurate answers. **Use the images provided whenever relevant to the FAQ.**",
-        },
-        {
-          role: "user",
-          content: `Extract structured FAQs with subheaders and cross-links from the following Wikipedia content:
+      // Log attempt information
+      console.log(`[generateStructuredFAQs] Processing ${title} (Attempt ${attempt + 1}/${retryAttempts})`);
+      console.log(`[generateStructuredFAQs] Sending ${truncatedMediaLinks.length} images to OpenAI for processing.`);
+
+      // Ensure images are passed in the prompt (preserved original structure)
+      const contentWithImages = `
+        ${truncatedContent}
+        Relevant Images:
+        ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
+      `;
+
+      // Create OpenAI request with preserved system and user messages
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, especially where there are specific details like names, dates, locations, numbers, formulas and so forth, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links",
+          },
+          {
+            role: "user",
+            content: `Extract structured questions and answers with subheaders, cross-links and if available images from the following Wikipedia content:
 
 Title: ${title}
 Last Updated: ${rawTimestamp}
 Content:
 ${contentWithImages}`,
-        },
-      ],
-      tools,
-    });
+          },
+        ],
+        tools,
+      });
 
-    const toolCall = response.choices[0].message.tool_calls?.[0];
-    if (!toolCall) {
-      console.error(`[generateStructuredFAQs] No function call generated for ${title}.`);
-      return null;
+      const toolCall = response.choices[0].message.tool_calls?.[0];
+      if (!toolCall) {
+        throw new Error(`No function call generated for ${title}`);
+      }
+
+      const args = JSON.parse(toolCall.function.arguments);
+      console.log(`[generateStructuredFAQs] ✅ Successfully generated FAQs for ${title}`);
+      return args;
+
+    } catch (error) {
+      lastError = error;
+      console.error(`[generateStructuredFAQs] Attempt ${attempt + 1} failed for ${title}:`, error.message);
+
+      if (attempt < retryAttempts - 1) {
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.log(`[generateStructuredFAQs] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
-
-    const args = JSON.parse(toolCall.function.arguments);
-    return args;
-  } catch (error) {
-    console.error(`[generateStructuredFAQs] Error: ${error.message}`);
-    return null;
   }
+
+  console.error(`[generateStructuredFAQs] All attempts failed for ${title}:`, lastError);
+  return null;
 };
 
-
-
-
 const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
-  try {
-    const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
+  const retryAttempts = 3;
+  let lastError = null;
 
-    // Create a set of used images to avoid reuse
-    const usedImages = new Set(existingFAQs.flatMap(faq => faq.media_links || []));
-    const unusedImages = truncatedMediaLinks.filter(img => !usedImages.has(img));
+  for (let attempt = 0; attempt < retryAttempts; attempt++) {
+    try {
+      // Wait for rate limit token
+      await openaiRateLimiter.acquireToken();
 
-    const existingQuestions = existingFAQs.map(faq => `- ${faq.question}\n  Subheader: ${faq.subheader}\n  Used images: ${(faq.media_links || []).join(", ")}`).join('\n');
+      console.log(`[generateAdditionalFAQs] Processing ${title} (Attempt ${attempt + 1}/${retryAttempts})`);
 
-    const contentWithImages = `
-      ${truncatedContent}
+      const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
 
-      Available Unused Images:
-      ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
-    `;
+      // Preserve image handling logic
+      const usedImages = new Set(existingFAQs.flatMap(faq => faq.media_links || []));
+      const unusedImages = truncatedMediaLinks.filter(img => !usedImages.has(img));
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "You are a brilliant writer tasked with extracting additional fascinating FAQs from Wikipedia content that weren't covered in the first pass. Start with the most interesting uncovered questions and work your way down. Focus on clarity, relevance, and engagement while avoiding jargon. Use all available information from Wikipedia, but prioritize what most people would find most interesting among the topics not yet covered. Ensure comprehensive answers and proper use of available images that haven't been used before.",
-        },
-        {
-          role: "user",
-          content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high quality standards. Focus on interesting aspects that weren't covered in the first pass. DO NOT REPEAT EXISTING QUESTIONS.
+      // Preserve existing questions formatting
+      const existingQuestions = existingFAQs.map(faq => 
+        `- ${faq.question}\n  Subheader: ${faq.subheader}\n  Used images: ${(faq.media_links || []).join(", ")}`
+      ).join('\n');
+
+      // Preserve content structure
+      const contentWithImages = `
+        ${truncatedContent}
+
+        Available Unused Images:
+        ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
+      `;
+
+      // Create OpenAI request with preserved messages
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a brilliant writer tasked with extracting additional fascinating FAQs from Wikipedia content that weren't covered in the first pass. Start with the most interesting uncovered questions and work your way down. Focus on clarity, relevance, and engagement while avoiding jargon. Use all available information from Wikipedia, but prioritize what most people would find most interesting among the topics not yet covered. Ensure comprehensive answers and proper use of available images that haven't been used before.",
+          },
+          {
+            role: "user",
+            content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high quality standards. Focus on interesting aspects that weren't covered in the first pass. DO NOT REPEAT EXISTING QUESTIONS.
 
 Title: ${title}
 
@@ -416,58 +824,36 @@ Requirements:
 5. Maintain the same high standards of clarity and relevance
 6. Group under appropriate subheaders
 7. Include relevant cross-links`,
-        },
-      ],
-      tools,
-      tool_choice: { type: "function", function: { name: "generate_additional_faqs" } }
-    });
+          },
+        ],
+        tools,
+        tool_choice: { type: "function", function: { name: "generate_additional_faqs" } }
+      });
 
-    const toolCall = response.choices[0].message.tool_calls?.[0];
-    if (!toolCall) {
-      console.error(`[generateAdditionalFAQs] No function call generated for ${title}.`);
-      return null;
+      const toolCall = response.choices[0].message.tool_calls?.[0];
+      if (!toolCall) {
+        throw new Error(`No function call generated for ${title}`);
+      }
+
+      const args = JSON.parse(toolCall.function.arguments);
+      console.log(`[generateAdditionalFAQs] ✅ Successfully generated additional FAQs for ${title}`);
+      return args.additional_faqs;
+
+    } catch (error) {
+      lastError = error;
+      console.error(`[generateAdditionalFAQs] Attempt ${attempt + 1} failed for ${title}:`, error.message);
+
+      if (attempt < retryAttempts - 1) {
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.log(`[generateAdditionalFAQs] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
     }
-
-    const args = JSON.parse(toolCall.function.arguments);
-    return args.additional_faqs;
-  } catch (error) {
-    console.error(`[generateAdditionalFAQs] Error: ${error.message}`);
-    return [];
   }
+
+  console.error(`[generateAdditionalFAQs] All attempts failed for ${title}:`, lastError);
+  return [];
 };
-
-
-const processWithEnrichment = async (title, content, images, url, humanReadableName, lastUpdated) => {
-  console.log(`[processWithEnrichment] Processing "${title}"`);
-
-  // **Pass ALL image URLs to OpenAI for FAQ generation**
-  console.log(`[processWithEnrichment] Passing ${images.length} images to OpenAI for FAQ generation.`);
-
-  // **First Pass: Generate Initial FAQs**
-  const structuredFAQs = await generateStructuredFAQs(title, content, lastUpdated, images);
-  if (!structuredFAQs) {
-    console.error(`[processWithEnrichment] ❌ Initial FAQ generation failed for "${title}"`);
-    return false;
-  }
-
-  // Save initial FAQs
-  const { faqs, human_readable_name, last_updated } = structuredFAQs;
-  await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
-
-  // **Second Pass: Generate Additional FAQs**
-  console.log(`[processWithEnrichment] Starting second pass for "${title}"`);
-  const additionalFAQs = await generateAdditionalFAQs(title, content, faqs, images);
-
-  if (additionalFAQs && additionalFAQs.length > 0) {
-    console.log(`[processWithEnrichment] ✅ Found ${additionalFAQs.length} additional FAQs for "${title}"`);
-    await saveAdditionalFAQs(title, additionalFAQs, url, human_readable_name, last_updated);
-  } else {
-    console.log(`[processWithEnrichment] No additional FAQs were generated for "${title}".`);
-  }
-
-  return true;
-};
-
 
 
 
@@ -528,13 +914,57 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
 
   console.log(`[saveAdditionalFAQs] Found FAQ file ID: ${faqFile.id}`);
 
+  // Collect all cross-links before processing FAQs
+  const allCrossLinks = additionalFaqs
+    .flatMap(faq => faq.cross_links || [])
+    .filter(Boolean)
+    .filter(link => !link.includes('#')); // Remove anchor links
+
+  // Add cross-links to processing queue
+  for (const link of allCrossLinks) {
+    const crossLinkTitle = link.replace(/_/g, " ");
+    const crossLinkSlug = formatWikipediaSlug(crossLinkTitle);
+    const crossLinkUrl = `https://en.wikipedia.org/wiki/${link}`;
+
+    try {
+      // Check if already in queue
+      const { data: existing } = await supabase
+        .from("processing_queue")
+        .select("id")
+        .eq("slug", crossLinkSlug)
+        .maybeSingle();
+
+      if (!existing) {
+        // Add to queue if not exists
+        await supabase
+          .from("processing_queue")
+          .insert([{
+            title: crossLinkTitle,
+            slug: crossLinkSlug,
+            url: crossLinkUrl,
+            human_readable_name: crossLinkTitle,
+            status: 'pending',
+            source: 'cross_link'
+          }]);
+        console.log(`[saveAdditionalFAQs] ✅ Added cross-link ${crossLinkTitle} to processing queue`);
+      }
+    } catch (error) {
+      console.error(`[saveAdditionalFAQs] Error adding cross-link ${crossLinkTitle} to queue:`, error);
+    }
+  }
+
   // Process all FAQs concurrently with Promise.all to improve performance
   await Promise.all(
     additionalFaqs.map(async (faq) => {
       try {
         console.log(`[saveAdditionalFAQs] Processing FAQ: "${faq.question}"`);
 
-        const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
+        const relatedPages = Array.isArray(faq.cross_links) 
+        ? faq.cross_links
+            .filter(Boolean)
+            .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
+            .join(", ") || null
+        : null;
 
         const embeddingText = `
           Page Title: ${title}
@@ -599,13 +1029,7 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
 
 
 
-
-
-
-
-
 const formatWikipediaSlug = (title) => title.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
-
 
 const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faqs) => {
   if (!url) {
@@ -628,13 +1052,57 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
   console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
 
+  // Collect all cross-links before processing FAQs
+  const allCrossLinks = faqs
+    .flatMap(faq => faq.cross_links || [])
+    .filter(Boolean)
+    .filter(link => !link.includes('#')); // Remove anchor links
+
+  // Add cross-links to processing queue
+  for (const link of allCrossLinks) {
+    const crossLinkTitle = link.replace(/_/g, " ");
+    const crossLinkSlug = formatWikipediaSlug(crossLinkTitle);
+    const crossLinkUrl = `https://en.wikipedia.org/wiki/${link}`;
+
+    try {
+      // Check if already in queue
+      const { data: existing } = await supabase
+        .from("processing_queue")
+        .select("id")
+        .eq("slug", crossLinkSlug)
+        .maybeSingle();
+
+      if (!existing) {
+        // Add to queue if not exists
+        await supabase
+          .from("processing_queue")
+          .insert([{
+            title: crossLinkTitle,
+            slug: crossLinkSlug,
+            url: crossLinkUrl,
+            human_readable_name: crossLinkTitle,
+            status: 'pending',
+            source: 'cross_link'
+          }]);
+        console.log(`[saveStructuredFAQ] ✅ Added cross-link ${crossLinkTitle} to processing queue`);
+      }
+    } catch (error) {
+      console.error(`[saveStructuredFAQ] Error adding cross-link ${crossLinkTitle} to queue:`, error);
+    }
+  }
+
   // Use `Promise.all()` to process all FAQs in parallel
   await Promise.all(
     faqs.map(async (faq) => {
       try {
         console.log(`[saveStructuredFAQ] Processing FAQ: "${faq.question}"`);
 
-        const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
+        const relatedPages = Array.isArray(faq.cross_links) 
+        ? faq.cross_links
+            .filter(Boolean)
+            .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
+            .join(", ") || null
+        : null;
 
         // Extract actual URL if media_links contain an object
         let mediaUrl = faq.media_links?.[0] || null;
@@ -694,7 +1162,6 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
   console.log(`[saveStructuredFAQ] ✅ Finished processing all structured FAQs for "${title}".`);
 };
-
 
 
 const convertWikipediaPathToUrl = (path) => {
@@ -783,29 +1250,135 @@ const fetchThumbnailURL = async (mediaLink, size = 480) => {
 };
 
 
+const processWithEnrichment = async (title, content, images, url, humanReadableName, lastUpdated) => {
+  console.log(`[processWithEnrichment] Processing "${title}"`);
+
+  try {
+    // First Pass: Generate Initial FAQs
+    console.log(`[processWithEnrichment] Starting first pass for "${title}"`);
+    const structuredFAQs = await generateStructuredFAQs(title, content, lastUpdated, images);
+
+    if (!structuredFAQs) {
+      console.error(`[processWithEnrichment] ❌ Initial FAQ generation failed for "${title}"`);
+      return false;
+    }
+
+    // Save initial FAQs
+    const { faqs, human_readable_name, last_updated } = structuredFAQs;
+    await saveStructuredFAQ(title, url, human_readable_name, last_updated, faqs);
+
+    // Second Pass: Generate Additional FAQs
+    console.log(`[processWithEnrichment] Starting second pass for "${title}"`);
+    const additionalFAQs = await generateAdditionalFAQs(title, content, faqs, images);
+
+    if (additionalFAQs && additionalFAQs.length > 0) {
+      console.log(`[processWithEnrichment] ✅ Found ${additionalFAQs.length} additional FAQs for "${title}"`);
+      await saveAdditionalFAQs(title, additionalFAQs, url, human_readable_name, last_updated);
+    } else {
+      console.log(`[processWithEnrichment] No additional FAQs were generated for "${title}".`);
+    }
+
+    console.log(`[processWithEnrichment] ✅ Successfully completed all processing for "${title}"`);
+    return true;
+
+  } catch (error) {
+    console.error(`[processWithEnrichment] ❌ Error processing "${title}":`, error);
+    return false;
+  }
+};
 
 
 
 
+const debugQueueCount = async () => {
+  const { count, error } = await supabase
+    .from("processing_queue")
+    .select("*", { count: "exact" });
 
-const fetchTopWikipediaPages = async (offset = 0) => {
+  if (error) {
+    console.error("[Database Debug] ❌ Error fetching queue count:", error.message);
+    return null;
+  }
+
+  console.log(`[Database Debug] Current queue count: ${count}`);
+  return count;
+};
+
+const fetchTopWikipediaPages = async (offset = 0, limit = 10) => {
   const url = `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/2023/12/31`;
+
   try {
     console.log(`[fetchTopWikipediaPages] Fetching Wikipedia pages...`);
     const response = await axios.get(url);
 
-    // Get ALL articles and filter out special pages
+    // Get articles and filter out special pages
     const articles = response.data.items[0].articles
-      .filter(article => !article.article.includes(':'))  // Filter out special pages
-      .filter(article => !article.article.startsWith('Main_'))  // Filter out main pages
-      .filter(article => article.article.length > 0);  // Ensure valid titles
+      .filter(article => !article.article.includes(':')) // Filter out special pages
+      .filter(article => !article.article.startsWith('Main_')) // Filter out main pages
+      .slice(offset, offset + limit); // Only get limited articles
 
-    console.log(`[fetchTopWikipediaPages] Found ${articles.length} potential pages to process`);
-    return articles.map((article) => article.article);
+    console.log(`[fetchTopWikipediaPages] Found ${articles.length} pages.`);
+    return articles.map(article => article.article);
   } catch (error) {
-    console.error("[fetchTopWikipediaPages] Error fetching top pages:", error.message);
+    console.error("[fetchTopWikipediaPages] ❌ Error fetching top pages:", error.message);
     return [];
   }
+};
+
+const addPagesToQueue = async (pages) => {
+  for (const title of pages) {
+    const cleanTitle = title.replace(/^\/wiki\//, ""); // Remove "/wiki/"
+    const slug = formatWikipediaSlug(cleanTitle);
+    const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanTitle)}`;
+
+    try {
+      console.log(`[main] Checking queue for ${cleanTitle}`);
+
+      const { data: existing } = await supabase
+        .from("processing_queue")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+
+      if (!existing) {
+        console.log(`[main] Adding ${cleanTitle} to queue`);
+
+        await supabase
+          .from("processing_queue")
+          .insert([
+            {
+              title: cleanTitle,
+              slug,
+              url,
+              human_readable_name: cleanTitle,
+              status: "pending",
+              source: "top_pages",
+            },
+          ]);
+
+        console.log(`[main] ✅ Added ${cleanTitle} to processing queue`);
+      } else {
+        console.log(`[main] Skipping ${cleanTitle}, already in queue`);
+      }
+    } catch (error) {
+      console.error(`[main] Error adding ${cleanTitle} to queue:`, error);
+    }
+  }
+};
+
+
+const processWikipediaPages = async () => {
+  const queueCount = await debugQueueCount();
+  if (queueCount >= MAX_QUEUE_COUNT) {
+    console.log(`[Queue Limit] 🚨 Queue already at max capacity (${MAX_QUEUE_COUNT}). Skipping.`);
+    return;
+  }
+
+  const remainingSlots = MAX_QUEUE_COUNT - queueCount;
+  console.log(`[Queue Limit] 🏁 Only ${remainingSlots} more slots available. Fetching limited pages.`);
+  const topPages = await fetchTopWikipediaPages(0, remainingSlots);
+
+  await addPagesToQueue(topPages);
 };
 
 
@@ -999,157 +1572,277 @@ const isPageAlreadyProcessed = async (title) => {
   return !!existingEntry; // Returns true if the page already exists
 };
 
+const addCrossLinksToQueue = async (crossLinks) => {
+  if (!crossLinks || !crossLinks.length) return;
+
+  for (const link of crossLinks) {
+    const title = link.replace(/_/g, " ");
+    const slug = formatWikipediaSlug(title);
+    const url = `https://en.wikipedia.org/wiki/${title}`;
+
+    try {
+      // Check if already in queue
+      const { data: existing } = await supabase
+        .from("processing_queue")
+        .select("id")
+        .eq("slug", slug)
+        .maybeSingle();
+
+      if (!existing) {
+        // Add to queue if not exists
+        await supabase
+          .from("processing_queue")
+          .insert([{
+            title,
+            slug,
+            url,
+            human_readable_name: title,
+            status: 'pending',
+            source: 'cross_link'
+          }]);
+        console.log(`[addCrossLinksToQueue] ✅ Added ${title} to processing queue`);
+      }
+    } catch (error) {
+      console.error(`[addCrossLinksToQueue] Error processing ${title}:`, error);
+    }
+  }
+};
+
+
 
 async function main() {
   console.log("[main] Starting FAQ generation process...");
+  console.log(`[main] Page limit set to: ${MEDIA_PAGE_LIMIT}`);
 
-  let processedCount = 0;
+  try {
+    // Debug initial state
+    console.log("[main] Checking initial database state...");
+    await debugDatabaseOperation("initial-check", {});
 
-  // **Step 1: Process Related Wikipedia Links (cross_links)**
-  console.log("[main] Checking for related Wikipedia links that are missing pages...");
+    // Get pending pages from processing queue
+    const { data: pendingPages, error: pendingError } = await supabase
+      .from("processing_queue")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(MEDIA_PAGE_LIMIT);
 
-  const { data: relatedLinks, error: relatedLinksError } = await supabase
-    .from("raw_faqs")
-    .select("cross_link")
-    .not("cross_link", "is", null)
+    if (pendingError) {
+      console.error("[main] ❌ Error retrieving pending pages:", pendingError.message);
+    } else {
+      const availablePages = pendingPages.length;
+      console.log(`[main] Found ${availablePages} pending pages in queue`);
 
-  if (relatedLinksError) {
-    console.error("[main] ❌ Error retrieving related links:", relatedLinksError.message);
-  } else {
-    const uniqueRelatedTitles = [...new Set(relatedLinks.flatMap(faq => faq.cross_link.split(',').map(link => link.trim())))];
+      // **Fetch Wikipedia pages if the queue is empty or not enough pages are available**
+      if (availablePages < MEDIA_PAGE_LIMIT) {
+        const neededPages = MEDIA_PAGE_LIMIT - availablePages;
+        console.log(`[main] 🚀 Need ${neededPages} more pages. Fetching from Wikipedia...`);
 
-    for (const path of uniqueRelatedTitles) {
-      if (processedCount >= MEDIA_PAGE_LIMIT) {
-        console.log(`[main] ✅ Target reached after processing related links.`);
+        const topPages = await fetchTopWikipediaPages(0, neededPages);
+
+        // Add new Wikipedia pages to queue
+        await Promise.all(
+          topPages.map(async (title) => {
+            const cleanTitle = title.replace(/^\/wiki\//, ""); // Remove "/wiki/"
+            const slug = formatWikipediaSlug(cleanTitle);
+            const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanTitle)}`;
+
+            try {
+              console.log(`[main] Checking queue for ${cleanTitle}`);
+
+              const { data: existing } = await supabase
+                .from("processing_queue")
+                .select("id")
+                .eq("slug", slug)
+                .maybeSingle();
+
+              if (!existing) {
+                console.log(`[main] Adding ${cleanTitle} to queue`);
+
+                await supabase
+                  .from("processing_queue")
+                  .insert([
+                    {
+                      title: cleanTitle,
+                      slug,
+                      url,
+                      human_readable_name: cleanTitle,
+                      status: "pending",
+                      source: "top_pages",
+                    },
+                  ]);
+
+                console.log(`[main] ✅ Added Wikipedia page ${cleanTitle} to processing queue`);
+              } else {
+                console.log(`[main] Page ${cleanTitle} already exists in queue`);
+              }
+            } catch (error) {
+              console.error(`[main] Error adding Wikipedia page ${cleanTitle} to queue:`, error);
+            }
+          })
+        );
+      }
+
+      // Refresh queue count after fetching new pages
+      const { data: updatedPendingPages, error: updatedPendingError } = await supabase
+        .from("processing_queue")
+        .select("*")
+        .eq("status", "pending")
+        .order("created_at", { ascending: true })
+        .limit(MEDIA_PAGE_LIMIT);
+
+      if (updatedPendingError) {
+        console.error("[main] ❌ Error retrieving updated pending pages:", updatedPendingError.message);
         return;
       }
 
-      // Convert "/wiki/Page_Name" -> "https://en.wikipedia.org/wiki/Page_Name"
-      const url = convertWikipediaPathToUrl(path);
-      if (!url) {
-        console.warn(`[main] Invalid Wikipedia path: ${path}. Skipping...`);
-        continue;
-      }
+      const pagesToProcess = updatedPendingPages.length;
+      console.log(`[main] ✅ Ready to process ${pagesToProcess} pages in parallel`);
 
-      // Extract Wikipedia title from the path
-      const title = path.replace(/^\/wiki\//, "").replace(/_/g, " ");
-      console.log(`[main] Processing related Wikipedia page: "${title}"`);
+      if (pagesToProcess > 0) {
+        console.log(`[main] 🚀 Sending ${pagesToProcess} pages to OpenAI in parallel...`);
 
-      // Check if this page already exists
-      const { data: existingEntry, error: existenceError } = await supabase
-        .from("faq_files")
-        .select("id")
-        .eq("slug", formatWikipediaSlug(title))
-        .limit(1)
-        .maybeSingle();
+        // **Send all pages to OpenAI in parallel**
+        await Promise.all(
+          updatedPendingPages.map(async (pendingPage) => {
+            try {
+              const cleanTitle = pendingPage.title.replace(/^\/wiki\//, ""); // Ensure correct title
+              console.log(`[main] Processing page from queue: "${cleanTitle}"`);
 
-      if (existenceError) {
-        console.error(`[main] Error checking slug existence for "${title}":`, existenceError.message);
-        continue;
-      }
+              // Update status to processing
+              const { error: updateError } = await supabase
+                .from("processing_queue")
+                .update({
+                  status: "processing",
+                  attempts: (pendingPage.attempts || 0) + 1,
+                })
+                .eq("id", pendingPage.id);
 
-      if (existingEntry) {
-        console.log(`[main] Skipping "${title}" as it already exists in the database.`);
-        continue;
-      }
+              if (updateError) {
+                console.error(`[main] Error updating page status:`, updateError);
+                return;
+              }
 
-      // Fetch Wikipedia Metadata and Content
-      const metadata = await fetchWikipediaMetadata(title);
-      const { lastUpdated, humanReadableName } = metadata;
+              // Check if already exists in FAQ files
+              const { data: existingEntry, error: existenceError } = await supabase
+                .from("faq_files")
+                .select("id")
+                .eq("slug", formatWikipediaSlug(cleanTitle))
+                .limit(1)
+                .maybeSingle();
 
-      if (!humanReadableName) {
-        console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
-        continue;
-      }
+              if (existenceError) {
+                console.error(`[main] Error checking slug existence for "${cleanTitle}":`, existenceError.message);
+                return;
+              }
 
-      const pageData = await fetchWikipediaPage(title);
-      if (!pageData) {
-        console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
-        continue;
-      }
+              if (existingEntry) {
+                console.log(`[main] Skipping "${cleanTitle}" as it already exists in the database.`);
 
-      const { content, images } = pageData;
-      console.log(`[main] Saving metadata for "${title}"`);
-      const metadataSaved = await saveMetadata(title, humanReadableName, supabase);
+                // Update queue status to completed for already existing pages
+                await supabase
+                  .from("processing_queue")
+                  .update({
+                    status: "completed",
+                    processed_at: new Date().toISOString(),
+                  })
+                  .eq("id", pendingPage.id);
 
-      if (!metadataSaved) {
-        console.error(`[main] Failed to save metadata for "${title}".`);
-        continue;
-      }
+                return;
+              }
 
-      console.log(`[main] Metadata saved successfully. Proceeding to FAQ generation.`);
-      const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
+              // Metadata fetching
+              const metadata = await fetchWikipediaMetadata(cleanTitle);
+              const { lastUpdated, humanReadableName } = metadata;
 
-      if (success) {
-        processedCount++;
-        console.log(`[main] ✅ Successfully processed: ${title} (Total: ${processedCount})`);
-      } else {
-        console.error(`[main] ❌ Enrichment process failed for "${title}".`);
+              if (!humanReadableName) {
+                console.warn(`[main] No human-readable name found for "${cleanTitle}". Skipping...`);
+
+                await supabase
+                  .from("processing_queue")
+                  .update({
+                    status: "failed",
+                    error_message: "No human-readable name found",
+                    processed_at: new Date().toISOString(),
+                  })
+                  .eq("id", pendingPage.id);
+
+                return;
+              }
+
+              const pageData = await fetchWikipediaPage(cleanTitle);
+              if (!pageData) {
+                console.error(`[main] Skipping "${cleanTitle}" due to empty or invalid content.`);
+
+                await supabase
+                  .from("processing_queue")
+                  .update({
+                    status: "failed",
+                    error_message: "Failed to fetch page content",
+                    processed_at: new Date().toISOString(),
+                  })
+                  .eq("id", pendingPage.id);
+
+                return;
+              }
+
+              const { content, images } = pageData;
+
+              // Save metadata
+              console.log(`[main] Saving metadata for "${cleanTitle}"`);
+              const metadataSaved = await saveMetadata(cleanTitle, humanReadableName, supabase);
+
+              if (!metadataSaved) {
+                console.error(`[main] Failed to save metadata for "${cleanTitle}".`);
+
+                await supabase
+                  .from("processing_queue")
+                  .update({
+                    status: "failed",
+                    error_message: "Failed to save metadata",
+                    processed_at: new Date().toISOString(),
+                  })
+                  .eq("id", pendingPage.id);
+
+                return;
+              }
+
+              // Process the page
+              const success = await processWithEnrichment(
+                cleanTitle,
+                content,
+                images,
+                pendingPage.url,
+                humanReadableName,
+                lastUpdated
+              );
+
+              if (success) {
+                console.log(`[main] ✅ Successfully processed: ${cleanTitle}`);
+
+                // Update queue status to completed
+                await supabase
+                  .from("processing_queue")
+                  .update({
+                    status: "completed",
+                    processed_at: new Date().toISOString(),
+                  })
+                  .eq("id", pendingPage.id);
+              }
+            } catch (error) {
+              console.error(`[main] Error processing page ${pendingPage.title}:`, error);
+            }
+          })
+        );
       }
     }
+
+    console.log("[main] ✅ FAQ generation process completed.");
+  } catch (error) {
+    console.error("[main] ❌ Fatal error in main process:", error);
+    throw error;
   }
-
-  // **Step 2: If we haven't reached our limit, process popular Wikipedia pages**
-  if (processedCount < MEDIA_PAGE_LIMIT) {
-    console.log("[main] Fetching top Wikipedia pages...");
-
-    const topPages = await fetchTopWikipediaPages(0, MEDIA_PAGE_LIMIT);
-    for (const title of topPages) {
-      if (processedCount >= MEDIA_PAGE_LIMIT) {
-        console.log(`[main] ✅ Reached target (${MEDIA_PAGE_LIMIT}) after processing top Wikipedia pages.`);
-        return;
-      }
-
-      // Check if this page was already processed
-      const alreadyProcessed = await isPageAlreadyProcessed(title);
-      if (alreadyProcessed) {
-        console.log(`[main] Skipping already processed page: "${title}"`);
-        continue;
-      }
-
-      console.log(`[main] Fetching Wikipedia metadata for: "${title}"`);
-      const metadata = await fetchWikipediaMetadata(title);
-      const { lastUpdated, humanReadableName } = metadata;
-
-      if (!humanReadableName) {
-        console.warn(`[main] No human-readable name found for "${title}". Skipping...`);
-        continue;
-      }
-
-      const pageData = await fetchWikipediaPage(title);
-      if (!pageData) {
-        console.error(`[main] Skipping "${title}" due to empty or invalid content.`);
-        continue;
-      }
-
-      const { content, images } = pageData;
-      console.log(`[main] Saving metadata for "${title}"`);
-      const metadataSaved = await saveMetadata(title, humanReadableName, supabase);
-
-      if (!metadataSaved) {
-        console.error(`[main] Failed to save metadata for "${title}".`);
-        continue;
-      }
-
-      console.log(`[main] Metadata saved successfully. Proceeding to FAQ generation.`);
-      const success = await processWithEnrichment(title, content, images, `https://en.wikipedia.org/wiki/${title}`, humanReadableName, lastUpdated);
-
-      if (success) {
-        processedCount++;
-        console.log(`[main] ✅ Successfully processed: ${title} (Total: ${processedCount})`);
-      } else {
-        console.error(`[main] ❌ Enrichment process failed for "${title}".`);
-      }
-    }
-  }
-
-  console.log(`[main] FAQ generation process completed. Processed ${processedCount} pages.`);
-  return processedCount;  // Add this line to return the count
-
 }
-
-
-
 
 
 
@@ -1184,3 +1877,9 @@ export { main };
 
 // Call the function once (prevents duplication)
 // commenting this out startProcess();
+if (process.argv[1].includes('fetchAndGenerate.js')) {
+  startProcess().catch(error => {
+    console.error("[Script] Fatal error:", error);
+    process.exit(1);
+  });
+}

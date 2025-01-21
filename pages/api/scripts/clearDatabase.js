@@ -13,21 +13,27 @@ const clearDatabase = async () => {
     console.log("[DB] Clearing `faq_embeddings` table...");
     const { error: embeddingsError } = await supabase.from("faq_embeddings").delete().neq("id", 0);
     if (embeddingsError) throw new Error(`[DB] Failed to clear \`faq_embeddings\`: ${embeddingsError.message}`);
-    console.log("[DB] Cleared `faq_embeddings` table.");
+    console.log("[DB] ✅ Cleared `faq_embeddings` table.");
 
     // Delete from `raw_faqs`
     console.log("[DB] Clearing `raw_faqs` table...");
     const { error: faqsError } = await supabase.from("raw_faqs").delete().neq("id", 0);
     if (faqsError) throw new Error(`[DB] Failed to clear \`raw_faqs\`: ${faqsError.message}`);
-    console.log("[DB] Cleared `raw_faqs` table.");
+    console.log("[DB] ✅ Cleared `raw_faqs` table.");
 
     // Delete from `faq_files`
     console.log("[DB] Clearing `faq_files` table...");
     const { error: filesError } = await supabase.from("faq_files").delete().neq("id", 0);
     if (filesError) throw new Error(`[DB] Failed to clear \`faq_files\`: ${filesError.message}`);
-    console.log("[DB] Cleared `faq_files` table.");
+    console.log("[DB] ✅ Cleared `faq_files` table.");
 
-    console.log("[DB] ✅ All tables cleared successfully.");
+    // Delete from `processing_queue` (this is the queue!)
+    console.log("[DB] Clearing `processing_queue` table...");
+    const { error: queueError } = await supabase.from("processing_queue").delete().neq("id", 0);
+    if (queueError) throw new Error(`[DB] Failed to clear \`processing_queue\`: ${queueError.message}`);
+    console.log("[DB] ✅ Cleared `processing_queue` table.");
+
+    console.log("[DB] 🎉 All tables cleared successfully.");
 
   } catch (error) {
     console.error("[DB] ❌ Error during database clearing:", error.message);
