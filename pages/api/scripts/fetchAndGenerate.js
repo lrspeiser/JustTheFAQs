@@ -15,7 +15,7 @@ console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_A
 
 let globalSupabase = null; // Ensure single instance
 const BATCH_SIZE = 32;
-const MEDIA_PAGE_LIMIT = 100; // Change this value if you want to process more pages
+const MEDIA_PAGE_LIMIT = 500; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 
 let embedder = null;
@@ -295,16 +295,19 @@ const saveMetadata = async (title, humanReadableName, supabase) => {
 const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
   // Estimate tokens based on characters (rough estimate: 4 characters = 1 token)
   const charLimit = maxTokens * 4;
+  const mediaLinksText = mediaLinks.join("\n");
 
-  if (content.length + mediaLinks.join("\n").length > charLimit) {
-    console.warn(
-      `[truncateContent] Content exceeds token limit. Truncating to ${maxTokens} tokens.`
-    );
+  if (content.length + mediaLinksText.length > charLimit) {
+    console.warn(`[truncateContent] Content exceeds token limit. Truncating to ${maxTokens} tokens.`);
 
-    // Truncate content
-    const truncatedContent = content.slice(0, charLimit - mediaLinks.join("\n").length - 1000);
+    // Truncate at the last complete sentence instead of a raw cut-off
+    let truncatedContent = content.slice(0, charLimit - mediaLinksText.length - 1000);
+    const lastSentenceEnd = truncatedContent.lastIndexOf(". ");
 
-    // Return truncated content and media links
+    if (lastSentenceEnd > 0) {
+      truncatedContent = truncatedContent.slice(0, lastSentenceEnd + 1);
+    }
+
     return {
       truncatedContent,
       truncatedMediaLinks: mediaLinks, // Media links remain unchanged
@@ -316,6 +319,7 @@ const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
     truncatedMediaLinks: mediaLinks,
   };
 };
+
 
 const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
   try {
@@ -524,61 +528,72 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
 
   console.log(`[saveAdditionalFAQs] Found FAQ file ID: ${faqFile.id}`);
 
-  for (const faq of additionalFaqs) {
-    try {
-      const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
+  // Process all FAQs concurrently with Promise.all to improve performance
+  await Promise.all(
+    additionalFaqs.map(async (faq) => {
+      try {
+        console.log(`[saveAdditionalFAQs] Processing FAQ: "${faq.question}"`);
 
-      const embeddingText = `
-        Page Title: ${title}
-        Subcategory: ${faq.subheader || "General"}
-        Question: ${faq.question}
-        Answer: ${faq.answer}
-        Related Pages: ${relatedPages}
-      `.trim();
+        const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
 
-      let mediaLink = faq.media_links?.[0] || null;
-      if (mediaLink && typeof mediaLink === 'object' && mediaLink.url) {
-        mediaLink = mediaLink.url;
+        const embeddingText = `
+          Page Title: ${title}
+          Subcategory: ${faq.subheader || "General"}
+          Question: ${faq.question}
+          Answer: ${faq.answer}
+          Related Pages: ${relatedPages}
+        `.trim();
+
+        let mediaLink = faq.media_links?.[0] || null;
+        if (mediaLink && typeof mediaLink === "object" && mediaLink.url) {
+          mediaLink = mediaLink.url;
+        }
+
+        const faqData = {
+          faq_file_id: faqFile.id,
+          url: url || `https://en.wikipedia.org/wiki/${title}`,
+          title: title,
+          human_readable_name: humanReadableName,
+          last_updated: lastUpdated,
+          subheader: faq.subheader || null,
+          question: faq.question,
+          answer: faq.answer,
+          cross_link: relatedPages,
+          media_link: mediaLink,
+        };
+
+        console.log(`[saveAdditionalFAQs] Saving additional FAQ: "${faq.question}"`);
+        const savedFaq = await insertDataToSupabase("raw_faqs", faqData);
+
+        if (!savedFaq) {
+          throw new Error("Failed to save additional FAQ");
+        }
+
+        // Generate and Save Embedding
+        console.log(`[saveAdditionalFAQs] Generating embedding for FAQ: "${faq.question}"`);
+        const embedding = await generateEmbedding(embeddingText);
+
+        const embeddingData = {
+          faq_id: savedFaq.id,
+          question: faq.question,
+          embedding,
+        };
+
+        await insertDataToSupabase("faq_embeddings", embeddingData);
+        console.log(`[saveAdditionalFAQs] ✅ Successfully saved FAQ and embedding for: "${faq.question}"`);
+
+        // Introduce a short delay to prevent rate-limiting
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+      } catch (error) {
+        console.error(`[saveAdditionalFAQs] ❌ Error processing FAQ: "${faq.question}"`, error);
       }
+    })
+  );
 
-      const faqData = {
-        faq_file_id: faqFile.id,
-        url: url || `https://en.wikipedia.org/wiki/${title}`,
-        title: title,
-        human_readable_name: humanReadableName, // ✅ Ensure this is saved
-        last_updated: lastUpdated, // ✅ Ensure this is saved
-        subheader: faq.subheader || null,
-        question: faq.question,
-        answer: faq.answer,
-        cross_link: relatedPages,
-        media_link: mediaLink,
-      };
-
-      console.log(`[saveAdditionalFAQs] Saving additional FAQ: "${faq.question}"`);
-      const savedFaq = await insertDataToSupabase('raw_faqs', faqData);
-
-      if (!savedFaq) {
-        throw new Error('Failed to save additional FAQ');
-      }
-
-      // **Generate and Save Embedding**
-      console.log(`[saveAdditionalFAQs] Generating embedding for additional FAQ: "${faq.question}"`);
-      const embedding = await generateEmbedding(embeddingText);
-
-      const embeddingData = {
-        faq_id: savedFaq.id,
-        question: faq.question,
-        embedding,
-      };
-
-      await insertDataToSupabase('faq_embeddings', embeddingData);
-      console.log(`[saveAdditionalFAQs] ✅ Saved additional FAQ and embedding for: "${faq.question}"`);
-
-    } catch (error) {
-      console.error(`[saveAdditionalFAQs] ❌ Error processing additional FAQ: "${faq.question}"`, error);
-    }
-  }
+  console.log(`[saveAdditionalFAQs] ✅ Finished processing all additional FAQs for "${title}".`);
 };
+
 
 
 
@@ -613,62 +628,73 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
   console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
 
-  for (const faq of faqs) {
-    try {
-      const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
+  // Use `Promise.all()` to process all FAQs in parallel
+  await Promise.all(
+    faqs.map(async (faq) => {
+      try {
+        console.log(`[saveStructuredFAQ] Processing FAQ: "${faq.question}"`);
 
-      // **Fix: Extract actual URL if media_links contain an object**
-      let mediaUrl = faq.media_links?.[0] || null;
-      if (mediaUrl && typeof mediaUrl === "object" && mediaUrl.url) {
-        mediaUrl = mediaUrl.url; // Extract the actual URL
+        const relatedPages = faq.cross_links ? faq.cross_links.join(", ") : "No related pages";
+
+        // Extract actual URL if media_links contain an object
+        let mediaUrl = faq.media_links?.[0] || null;
+        if (mediaUrl && typeof mediaUrl === "object" && mediaUrl.url) {
+          mediaUrl = mediaUrl.url;
+        }
+
+        const embeddingText = `
+          Page Title: ${title}
+          Subcategory: ${faq.subheader || "General"}
+          Question: ${faq.question}
+          Answer: ${faq.answer}
+          Related Pages: ${relatedPages}
+        `.trim();
+
+        const faqData = {
+          faq_file_id: faqFileId,
+          url,
+          title,
+          human_readable_name: humanReadableName,
+          last_updated: lastUpdated,
+          subheader: faq.subheader || null,
+          question: faq.question,
+          answer: faq.answer,
+          cross_link: relatedPages,
+          media_link: mediaUrl, // Fixed media URL
+        };
+
+        console.log(`[saveStructuredFAQ] Saving FAQ: "${faq.question}"`);
+        const savedFaq = await insertDataToSupabase("raw_faqs", faqData);
+
+        if (!savedFaq) {
+          throw new Error("Failed to save FAQ");
+        }
+
+        // Generate and Save Embedding
+        console.log(`[saveStructuredFAQ] Generating embedding for FAQ: "${faq.question}"`);
+        const embedding = await generateEmbedding(embeddingText);
+
+        const embeddingData = {
+          faq_id: savedFaq.id,
+          question: faq.question,
+          embedding,
+        };
+
+        await insertDataToSupabase("faq_embeddings", embeddingData);
+        console.log(`[saveStructuredFAQ] ✅ Successfully saved FAQ and embedding for: "${faq.question}"`);
+
+        // Introduce a small delay to prevent potential rate-limiting
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+      } catch (error) {
+        console.error(`[saveStructuredFAQ] ❌ Error processing FAQ: "${faq.question}"`, error);
       }
+    })
+  );
 
-      const embeddingText = `
-        Page Title: ${title}
-        Subcategory: ${faq.subheader || "General"}
-        Question: ${faq.question}
-        Answer: ${faq.answer}
-        Related Pages: ${relatedPages}
-      `.trim();
-
-      const faqData = {
-        faq_file_id: faqFileId,
-        url,
-        title,
-        human_readable_name: humanReadableName,
-        last_updated: lastUpdated,
-        subheader: faq.subheader || null,
-        question: faq.question,
-        answer: faq.answer,
-        cross_link: relatedPages,
-        media_link: mediaUrl, // **Fixed media URL**
-      };
-
-      console.log(`[saveStructuredFAQ] Saving FAQ: "${faq.question}"`);
-      const savedFaq = await insertDataToSupabase('raw_faqs', faqData);
-
-      if (!savedFaq) {
-        throw new Error('Failed to save FAQ');
-      }
-
-      // **Generate and Save Embedding**
-      console.log(`[saveStructuredFAQ] Generating embedding for FAQ: "${faq.question}"`);
-      const embedding = await generateEmbedding(embeddingText);
-
-      const embeddingData = {
-        faq_id: savedFaq.id,
-        question: faq.question,
-        embedding,
-      };
-
-      await insertDataToSupabase('faq_embeddings', embeddingData);
-      console.log(`[saveStructuredFAQ] ✅ Saved FAQ and embedding for: "${faq.question}"`);
-
-    } catch (error) {
-      console.error(`[saveStructuredFAQ] ❌ Error processing FAQ: "${faq.question}"`, error);
-    }
-  }
+  console.log(`[saveStructuredFAQ] ✅ Finished processing all structured FAQs for "${title}".`);
 };
+
 
 
 const convertWikipediaPathToUrl = (path) => {
