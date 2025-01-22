@@ -915,10 +915,7 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
   console.log(`[saveAdditionalFAQs] Found FAQ file ID: ${faqFile.id}`);
 
   // Collect all cross-links before processing FAQs
-  const allCrossLinks = additionalFaqs
-    .flatMap(faq => faq.cross_links || [])
-    .filter(Boolean)
-    .filter(link => !link.includes('#')); // Remove anchor links
+  const allCrossLinks = formatCrossLinks(faqs);
 
   // Add cross-links to processing queue
   for (const link of allCrossLinks) {
@@ -1053,10 +1050,7 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
   console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
 
   // Collect all cross-links before processing FAQs
-  const allCrossLinks = faqs
-    .flatMap(faq => faq.cross_links || [])
-    .filter(Boolean)
-    .filter(link => !link.includes('#')); // Remove anchor links
+  const allCrossLinks = formatCrossLinks(faqs);
 
   // Add cross-links to processing queue
   for (const link of allCrossLinks) {
@@ -1181,26 +1175,23 @@ const convertWikipediaPathToUrl = (path) => {
 
 
 // Add this utility function to handle cross-links properly
-const formatCrossLinks = (links) => {
-  if (!links) return [];
+const formatCrossLinks = (faqs) => {
+  if (!faqs) return [];
+
   try {
-    if (typeof links === 'string') {
-      return links.split(',')
-        .map(link => link.trim())
-        .filter(link => !link.includes('#')) // ❌ Remove anchor links
-        .map(link => {
-          // Remove /wiki/ prefix if present
-          const cleanLink = link.replace(/^\/wiki\//, '');
-          // Decode URL-encoded characters
-          return decodeURIComponent(cleanLink);
-        })
-        .filter(Boolean); // Remove empty links
-    }
-    return links.filter(link => !link.includes('#')); // Remove anchors in array input
-  } catch {
+    return faqs
+      .flatMap(faq => faq.cross_links || [])  // ✅ Extract links from FAQs
+      .filter(Boolean)                        // ✅ Remove null/undefined values
+      .filter(link => !link.includes('#'))    // ✅ Remove anchor links
+      .map(link => link.replace(/^\/wiki\//, ''))  // ✅ Remove "/wiki/" prefix
+      .map(link => decodeURIComponent(link))  // ✅ Decode URL-encoded characters
+      .filter(Boolean);                        // ✅ Remove any empty strings
+  } catch (error) {
+    console.error("[formatCrossLinks] ❌ Error processing cross-links:", error);
     return [];
   }
 };
+
 
 
 
@@ -1327,12 +1318,12 @@ const fetchTopWikipediaPages = async (offset = 0, limit = 10) => {
 
 const addPagesToQueue = async (pages) => {
   for (const title of pages) {
-    const cleanTitle = title.replace(/^\/wiki\//, ""); // Remove "/wiki/"
+    const cleanTitle = title.replace(/^\/wiki\//, ""); // ✅ Remove "/wiki/"
     const slug = formatWikipediaSlug(cleanTitle);
     const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanTitle)}`;
 
     try {
-      console.log(`[main] Checking queue for ${cleanTitle}`);
+      console.log(`[addPagesToQueue] Checking queue for ${cleanTitle}`);
 
       const { data: existing } = await supabase
         .from("processing_queue")
@@ -1341,7 +1332,7 @@ const addPagesToQueue = async (pages) => {
         .maybeSingle();
 
       if (!existing) {
-        console.log(`[main] Adding ${cleanTitle} to queue`);
+        console.log(`[addPagesToQueue] Adding ${cleanTitle} to queue`);
 
         await supabase
           .from("processing_queue")
@@ -1356,12 +1347,12 @@ const addPagesToQueue = async (pages) => {
             },
           ]);
 
-        console.log(`[main] ✅ Added ${cleanTitle} to processing queue`);
+        console.log(`[addPagesToQueue] ✅ Added ${cleanTitle} to processing queue`);
       } else {
-        console.log(`[main] Skipping ${cleanTitle}, already in queue`);
+        console.log(`[addPagesToQueue] Skipping ${cleanTitle}, already in queue`);
       }
     } catch (error) {
-      console.error(`[main] Error adding ${cleanTitle} to queue:`, error);
+      console.error(`[addPagesToQueue] Error adding ${cleanTitle} to queue:`, error);
     }
   }
 };
@@ -1576,9 +1567,9 @@ const addCrossLinksToQueue = async (crossLinks) => {
   if (!crossLinks || !crossLinks.length) return;
 
   for (const link of crossLinks) {
-    const title = link.replace(/_/g, " ");
-    const slug = formatWikipediaSlug(title);
-    const url = `https://en.wikipedia.org/wiki/${title}`;
+    const cleanTitle = link.replace(/^\/wiki\//, ""); // ✅ Remove "/wiki/"
+    const slug = formatWikipediaSlug(cleanTitle);
+    const url = `https://en.wikipedia.org/wiki/${encodeURIComponent(cleanTitle)}`;
 
     try {
       // Check if already in queue
@@ -1593,20 +1584,21 @@ const addCrossLinksToQueue = async (crossLinks) => {
         await supabase
           .from("processing_queue")
           .insert([{
-            title,
+            title: cleanTitle,
             slug,
             url,
-            human_readable_name: title,
+            human_readable_name: cleanTitle,
             status: 'pending',
             source: 'cross_link'
           }]);
-        console.log(`[addCrossLinksToQueue] ✅ Added ${title} to processing queue`);
+        console.log(`[addCrossLinksToQueue] ✅ Added ${cleanTitle} to processing queue`);
       }
     } catch (error) {
-      console.error(`[addCrossLinksToQueue] Error processing ${title}:`, error);
+      console.error(`[addCrossLinksToQueue] Error processing ${cleanTitle}:`, error);
     }
   }
 };
+
 
 
 
