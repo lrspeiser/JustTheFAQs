@@ -113,24 +113,6 @@ async function initEmbedder() {
   return embedder;
 }
 
-const generateEmbedding = async (text) => {
-  try {
-    console.log('[generateEmbedding] Generating embedding for:', text);
-
-    const embedding = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: text,
-      dimensions: 1536  // Using 1536 dimensions for compatibility with existing database
-    });
-
-    console.log('[generateEmbedding] Successfully generated embedding');
-    return embedding.data[0].embedding;
-  } catch (error) {
-    console.error('[generateEmbedding] Error generating embedding:', error.message);
-    throw error;
-  }
-};
-
 
 
 export function initClients() {
@@ -697,13 +679,42 @@ class RateLimiter {
 const openaiRateLimiter = new RateLimiter(30000, 60000); // 30k requests per minute for gpt-4o-mini
 
 
+// Function 1: Enhanced Embedding Generation
+const generateEmbedding = async (text) => {
+  try {
+    console.log('[generateEmbedding] Generating embedding for:', text);
+    console.log('[generateEmbedding] 🟡 Starting OpenAI API call...');
+    console.log('[generateEmbedding] Request params:', {
+      model: "text-embedding-3-small",
+      inputLength: text.length,
+      dimensions: 1536
+    });
+
+    const startTime = Date.now();
+    const embedding = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: text,
+      dimensions: 1536  // Using 1536 dimensions for compatibility with existing database
+    });
+    const duration = Date.now() - startTime;
+
+    console.log(`[generateEmbedding] ✅ OpenAI API call completed in ${duration}ms`);
+    console.log('[generateEmbedding] Response status:', embedding.data ? '200 OK' : 'No data received');
+    console.log('[generateEmbedding] Successfully generated embedding');
+    return embedding.data[0].embedding;
+  } catch (error) {
+    console.error('[generateEmbedding] Error generating embedding:', error.message);
+    throw error;
+  }
+};
+
+// Function 2: Enhanced Structured FAQ Generation
 const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
   const retryAttempts = 3;
   let lastError = null;
 
   for (let attempt = 0; attempt < retryAttempts; attempt++) {
     try {
-      // Ensure we respect OpenAI rate limits
       await openaiRateLimiter.acquireToken();
 
       const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
@@ -717,6 +728,15 @@ const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
         ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
       `;
 
+      console.log(`[generateStructuredFAQs] 🟡 Starting OpenAI chat completion for "${title}"...`);
+      console.log('[generateStructuredFAQs] Request details:', {
+        model: "gpt-4o-mini",
+        messageCount: 2,
+        contentLength: contentWithImages.length,
+        toolsCount: tools.length
+      });
+
+      const startTime = Date.now();
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -738,6 +758,16 @@ ${contentWithImages}`,
         tools,
       });
 
+      const duration = Date.now() - startTime;
+      console.log(`[generateStructuredFAQs] ✅ OpenAI chat completion completed in ${duration}ms`);
+      console.log('[generateStructuredFAQs] Response status:', response.choices ? '200 OK' : 'No choices received');
+      console.log('[generateStructuredFAQs] Response details:', {
+        choicesCount: response.choices?.length || 0,
+        hasToolCalls: !!response.choices?.[0]?.message?.tool_calls,
+        model: response.model,
+        usage: response.usage
+      });
+
       const toolCall = response.choices[0].message.tool_calls?.[0];
       if (!toolCall) {
         throw new Error(`No function call generated for ${title}`);
@@ -752,7 +782,7 @@ ${contentWithImages}`,
       console.error(`[generateStructuredFAQs] Attempt ${attempt + 1} failed for ${title}:`, error.message);
 
       if (attempt < retryAttempts - 1) {
-        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        const delay = Math.pow(2, attempt) * 1000;
         console.log(`[generateStructuredFAQs] Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
@@ -770,7 +800,6 @@ const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
 
   for (let attempt = 0; attempt < retryAttempts; attempt++) {
     try {
-      // Ensure we respect OpenAI rate limits
       await openaiRateLimiter.acquireToken();
 
       console.log(`[generateAdditionalFAQs] Processing ${title} (Attempt ${attempt + 1}/${retryAttempts})`);
@@ -791,6 +820,16 @@ const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
         ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
       `;
 
+      console.log(`[generateAdditionalFAQs] 🟡 Starting OpenAI chat completion for additional FAQs for "${title}"...`);
+      console.log('[generateAdditionalFAQs] Request details:', {
+        model: "gpt-4o-mini",
+        messageCount: 2,
+        contentLength: contentWithImages.length,
+        existingQuestionsCount: existingQuestions.split('\n').length,
+        toolsCount: tools.length
+      });
+
+      const startTime = Date.now();
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -824,6 +863,16 @@ Requirements:
         tool_choice: { type: "function", function: { name: "generate_additional_faqs" } }
       });
 
+      const duration = Date.now() - startTime;
+      console.log(`[generateAdditionalFAQs] ✅ OpenAI chat completion completed in ${duration}ms`);
+      console.log('[generateAdditionalFAQs] Response status:', response.choices ? '200 OK' : 'No choices received');
+      console.log('[generateAdditionalFAQs] Response details:', {
+        choicesCount: response.choices?.length || 0,
+        hasToolCalls: !!response.choices?.[0]?.message?.tool_calls,
+        model: response.model,
+        usage: response.usage
+      });
+
       const toolCall = response.choices[0].message.tool_calls?.[0];
       if (!toolCall) {
         throw new Error(`No function call generated for ${title}`);
@@ -838,7 +887,7 @@ Requirements:
       console.error(`[generateAdditionalFAQs] Attempt ${attempt + 1} failed for ${title}:`, error.message);
 
       if (attempt < retryAttempts - 1) {
-        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        const delay = Math.pow(2, attempt) * 1000;
         console.log(`[generateAdditionalFAQs] Retrying in ${delay}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
