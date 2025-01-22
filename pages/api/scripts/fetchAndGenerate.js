@@ -15,7 +15,7 @@ console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_A
 
 let globalSupabase = null; // Ensure single instance
 const BATCH_SIZE = 32;
-const MEDIA_PAGE_LIMIT = 50; // Change this value if you want to process more pages
+const MEDIA_PAGE_LIMIT = 5; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 let embedder = null;
 const RETRY_ATTEMPTS = 3;
@@ -180,7 +180,7 @@ const tools = [
     type: "function",
     function: {
       name: "generate_structured_faqs",
-      description: "Generate structured FAQs from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, especially where there are specific details like names, dates, locations, numbers, formulas and so forth, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links",
+      description: "Generate structured Questions and Answers from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, especially where there are specific details like names, dates, locations, numbers, formulas and so forth, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links. There should be a minimum of one question for every section within the Wikipedia page.",
       parameters: {
         type: "object",
         properties: {
@@ -192,13 +192,13 @@ const tools = [
             items: {
               type: "object",
               properties: {
-                subheader: { type: "string", description: "The subheader under which this FAQ falls." },
-                question: { type: "string", description: "A question derived from the content. These should be interesting questions where we have something unique in the answer to share." },
-                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience." },
+                subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentances of content about the subject of the page." },
+                question: { type: "string", description: "A question derived from the content. These should be interesting questions where we have something unique in the answer to share.There should be a minimum of one question for every section within the Wikipedia page." },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of two sentances of content." },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)"
+                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)"
                 },
                 media_links: {
                   type: "array",
@@ -219,7 +219,7 @@ const tools = [
     type: "function",
     function: {
       name: "generate_additional_faqs",
-      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that we did not already create questions and answers for. Make sure to expand upon those answers comprehensively, especially where there are specific details like names, dates, locations, numbers, formulas and so forth. If there are any images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass. Do NOT change the case of Wikipedia page titles or cross-links",
+      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that we did not already create questions and answers for. Make sure to expand upon those answers comprehensively, especially where there are specific details like names, dates, locations, numbers, formulas and so forth. If there are any images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass. Do NOT change the case of Wikipedia page titles or cross-links. There should be a minimum of one question for every section within the Wikipedia page.",
       parameters: {
         type: "object",
         properties: {
@@ -231,13 +231,13 @@ const tools = [
             items: {
               type: "object",
               properties: {
-                subheader: { type: "string", description: "The subheader under which this FAQ falls." },
-                question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass. These should be interesting questions where we have something unique in the answer to share." },
-                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience." },
+                subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentances of content about the subject of the page." },
+                question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass. These should be interesting questions where we have something unique in the answer to share. There should be a minimum of one question for every section within the Wikipedia page." },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of two sentances of content." },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)",
+                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)",
                 },
                 media_links: {
                   type: "array",
@@ -915,7 +915,7 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
   console.log(`[saveAdditionalFAQs] Found FAQ file ID: ${faqFile.id}`);
 
   // Collect all cross-links before processing FAQs
-  const allCrossLinks = formatCrossLinks(faqs);
+  const allCrossLinks = additionalFaqs ? formatCrossLinks(additionalFaqs) : [];
 
   // Add cross-links to processing queue
   for (const link of allCrossLinks) {
@@ -1050,7 +1050,7 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
   console.log("[saveStructuredFAQ] Processing FAQs with FAQ file ID:", faqFileId);
 
   // Collect all cross-links before processing FAQs
-  const allCrossLinks = formatCrossLinks(faqs);
+  const allCrossLinks = faqs ? formatCrossLinks(faqs) : [];
 
   // Add cross-links to processing queue
   for (const link of allCrossLinks) {
@@ -1176,20 +1176,18 @@ const convertWikipediaPathToUrl = (path) => {
 
 // Add this utility function to handle cross-links properly
 const formatCrossLinks = (faqs) => {
-  if (!faqs) return [];
-
-  try {
-    return faqs
-      .flatMap(faq => faq.cross_links || [])  // ✅ Extract links from FAQs
-      .filter(Boolean)                        // ✅ Remove null/undefined values
-      .filter(link => !link.includes('#'))    // ✅ Remove anchor links
-      .map(link => link.replace(/^\/wiki\//, ''))  // ✅ Remove "/wiki/" prefix
-      .map(link => decodeURIComponent(link))  // ✅ Decode URL-encoded characters
-      .filter(Boolean);                        // ✅ Remove any empty strings
-  } catch (error) {
-    console.error("[formatCrossLinks] ❌ Error processing cross-links:", error);
-    return [];
+  if (!Array.isArray(faqs)) {
+    console.error("[formatCrossLinks] ❌ Invalid faqs input:", faqs);
+    return []; // Return an empty array instead of throwing an error
   }
+
+  return faqs
+    .flatMap(faq => faq.cross_links || [])
+    .filter(Boolean)
+    .filter(link => !link.includes('#')) // Remove anchor links
+    .map(link => link.replace(/^\/wiki\//, ''))  // Remove "/wiki/" prefix
+    .map(link => decodeURIComponent(link))  // Decode URL-encoded characters
+    .filter(Boolean);  // Remove any empty strings
 };
 
 
