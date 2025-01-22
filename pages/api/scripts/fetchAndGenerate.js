@@ -403,7 +403,19 @@ ${contentWithImages}`
       console.log(`[generateStructuredFAQsBatch] ✅ OpenAI chat completion completed in ${duration}ms`);
       console.log('[generateStructuredFAQsBatch] Response status:', response.choices ? '200 OK' : 'No choices received');
 
-      const toolCall = response.choices[0].message.tool_calls?.[0];
+      // ✅ Handle OpenAI's response safely
+      let parsedResponse;
+      try {
+        // Only parse if response is a string, otherwise use as is
+        parsedResponse = typeof response === 'string' ? JSON.parse(response) : response;
+      } catch (jsonError) {
+        console.error('[generateStructuredFAQsBatch] ❌ OpenAI response is not valid JSON:', response);
+        return null;  // Skip this page if response is invalid
+      }
+
+      const toolCall = (parsedResponse.choices?.[0]?.message?.tool_calls?.[0]) || 
+                      (response.choices?.[0]?.message?.tool_calls?.[0]);
+
       if (!toolCall) {
         throw new Error(`No function call generated for ${title}`);
       }
@@ -417,14 +429,18 @@ ${contentWithImages}`
         originalHumanReadableName: humanReadableName
       };
     } catch (error) {
+      console.error(`[generateStructuredFAQsBatch] ❌ OpenAI API Error for ${title}:`, error.message);
+
+      if (error.response) {
+        console.error("[generateStructuredFAQsBatch] ❌ OpenAI Response Data:", error.response.data);
+      }
+
       return handleBatchProcessingError(error, title, 'generateStructuredFAQsBatch');
     }
   };
 
   return processBatch(pages, processFAQ);
-  // Removed batch size, just pass items and process function
 }
-
 
 // Enhanced batch processing for additional FAQs
 async function generateAdditionalFAQsBatch(pages, batchSize = 5) {
