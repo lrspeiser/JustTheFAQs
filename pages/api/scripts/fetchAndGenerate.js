@@ -21,6 +21,8 @@ let embedder = null;
 const RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 1000;
 
+
+
 // Add this retry wrapper function
 const withRetry = async (operation, context) => {
   for (let i = 0; i < RETRY_ATTEMPTS; i++) {
@@ -334,42 +336,32 @@ const handleBatchProcessingError = async (error, title, type) => {
 
 
 // Utility function to process batches of requests with rate limiting
-async function processBatch(items, batchSize, processFn) {
-  const results = [];
-
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
-    console.log(`Processing batch ${i / batchSize + 1} of ${Math.ceil(items.length / batchSize)}`);
-
-    // Process each item in the batch concurrently
-    const batchResults = await Promise.all(
-      batch.map(async (item) => {
-        try {
-          return await processFn(item);
-        } catch (error) {
-          console.error(`Error processing item:`, error);
-          return null;
-        }
-      })
-    );
-
-    results.push(...batchResults.filter(Boolean));
-
-    // Add a small delay between batches to respect rate limits
-    if (i + batchSize < items.length) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
-
-  return results;
+async function processBatch(items, processFn) {
+  console.log(`Processing ${items.length} items in parallel`);
+  return Promise.all(
+    items.map(async (item) => {
+      try {
+        return await processFn(item);
+      } catch (error) {
+        console.error(`Error processing item:`, error);
+        return null;
+      }
+    })
+  ).then(results => results.filter(Boolean));
 }
 
-// Modified generateStructuredFAQs to handle batches
-async function generateStructuredFAQsBatch(pages, batchSize = 5) {
+
+
+
+// Enhanced batch processing for OpenAI calls
+async function generateStructuredFAQsBatch(pages) {
+  console.log(`[generateStructuredFAQsBatch] Starting batch processing of ${pages.length} pages`);
+
   const processFAQ = async (page) => {
-    const { title, content, rawTimestamp, images } = page;
+    const { title, content, lastUpdated: rawTimestamp, images, url, humanReadableName } = page;
 
     try {
+      console.log(`[generateStructuredFAQsBatch] Processing FAQ for "${title}"`);
       const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
 
       const contentWithImages = `
@@ -378,6 +370,15 @@ async function generateStructuredFAQsBatch(pages, batchSize = 5) {
         ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
       `;
 
+      console.log(`[generateStructuredFAQsBatch] 🟡 Starting OpenAI chat completion for "${title}"...`);
+      console.log('[generateStructuredFAQsBatch] Request details:', {
+        model: "gpt-4o-mini",
+        messageCount: 2,
+        contentLength: contentWithImages.length,
+        toolsCount: tools.length
+      });
+
+      const startTime = Date.now();
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -387,31 +388,228 @@ async function generateStructuredFAQsBatch(pages, batchSize = 5) {
           },
           {
             role: "user",
-            content: `Extract structured questions and answers with subheaders,  cross-links and if available images from the following Wikipedia content:
-              Title: ${title}
-              Last Updated: ${rawTimestamp}
-              Content:
-              ${contentWithImages}`
+            content: `Extract structured questions and answers with subheaders, cross-links and if available images from the following Wikipedia content:
+
+Title: ${title}
+Last Updated: ${rawTimestamp}
+Content:
+${contentWithImages}`
           }
         ],
         tools
       });
 
+      const duration = Date.now() - startTime;
+      console.log(`[generateStructuredFAQsBatch] ✅ OpenAI chat completion completed in ${duration}ms`);
+      console.log('[generateStructuredFAQsBatch] Response status:', response.choices ? '200 OK' : 'No choices received');
+
       const toolCall = response.choices[0].message.tool_calls?.[0];
       if (!toolCall) {
-        console.error(`No function call generated for ${title}.`);
-        return null;
+        throw new Error(`No function call generated for ${title}`);
       }
 
-      return JSON.parse(toolCall.function.arguments);
+      const args = JSON.parse(toolCall.function.arguments);
+      console.log(`[generateStructuredFAQsBatch] ✅ Successfully generated FAQs for ${title}`);
+
+      return {
+        ...args,
+        originalUrl: url,
+        originalHumanReadableName: humanReadableName
+      };
     } catch (error) {
-      console.error(`Error generating FAQs for ${title}:`, error);
-      return null;
+      return handleBatchProcessingError(error, title, 'generateStructuredFAQsBatch');
     }
   };
 
-  return await processBatch(pages, batchSize, processFAQ);
+  return processBatch(pages, processFAQ);
+  // Removed batch size, just pass items and process function
 }
+
+
+// Enhanced batch processing for additional FAQs
+async function generateAdditionalFAQsBatch(pages, batchSize = 5) {
+  console.log(`[generateAdditionalFAQsBatch] Starting batch processing of ${pages.length} pages`);
+
+  const processAdditionalFAQs = async (page) => {
+    const { title, content, existingFAQs, images, lastUpdated: rawTimestamp } = page;
+
+    try {
+      console.log(`[generateAdditionalFAQsBatch] Processing additional FAQs for "${title}"`);
+
+      const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
+
+      const usedImages = new Set(existingFAQs.flatMap(faq => faq.media_links || []));
+      const unusedImages = truncatedMediaLinks.filter(img => !usedImages.has(img));
+
+      const existingQuestions = existingFAQs.map(faq => 
+        `- ${faq.question}\n  Subheader: ${faq.subheader}\n  Used images: ${(faq.media_links || []).join(", ")}`
+      ).join('\n');
+
+      const contentWithImages = `
+        ${truncatedContent}
+        Available Unused Images:
+        ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
+      `;
+
+      console.log(`[generateAdditionalFAQsBatch] 🟡 Starting OpenAI chat completion for "${title}"...`);
+      const startTime = Date.now();
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a brilliant writer tasked with extracting additional fascinating FAQs from Wikipedia content that weren't covered in the first pass. Start with the most interesting uncovered questions and work your way down. Focus on clarity, relevance, and engagement while avoiding jargon. Use all available information from Wikipedia, but prioritize what most people would find most interesting among the topics not yet covered. Ensure comprehensive answers and proper use of available images that haven't been used before."
+          },
+          {
+            role: "user",
+            content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high-quality standards. Focus on interesting aspects that weren't covered in the first pass.
+
+Title: ${title}
+
+Content:
+${contentWithImages}
+
+Existing Questions (to avoid duplication):
+${existingQuestions}
+
+Requirements:
+1. Generate entirely new questions that don't overlap with existing ones
+2. Focus on the most interesting uncovered aspects first
+3. Provide comprehensive, engaging answers
+4. Only use images that weren't used in the first pass
+5. Maintain the same high standards of clarity and relevance
+6. Group under appropriate subheaders
+7. Include relevant cross-links`
+          }
+        ],
+        tools,
+        tool_choice: { type: "function", function: { name: "generate_additional_faqs" } }
+      });
+
+      const duration = Date.now() - startTime;
+      console.log(`[generateAdditionalFAQsBatch] ✅ OpenAI chat completion completed in ${duration}ms`);
+
+      const toolCall = response.choices[0].message.tool_calls?.[0];
+      if (!toolCall) {
+        throw new Error(`No function call generated for ${title}`);
+      }
+
+      const args = JSON.parse(toolCall.function.arguments);
+      console.log(`[generateAdditionalFAQsBatch] ✅ Successfully generated additional FAQs for ${title}`);
+
+      return args.additional_faqs;
+    } catch (error) {
+      return handleBatchProcessingError(error, title, 'generateAdditionalFAQsBatch');
+
+    }
+  };
+
+  return await processBatch(pages, processAdditionalFAQs);
+}
+
+// Updated processWithEnrichment to use batch processing
+async function processWithEnrichmentBatch(pages) {
+  console.log(`[processWithEnrichmentBatch] Processing ${pages.length} pages in batch`);
+  const results = new Map();
+  const completionStatus = new Map(); // Track completion status for each page
+
+  try {
+    // First pass - process in parallel but save each result as we get it
+    const firstPassResults = await Promise.all(pages.map(async (page) => {
+      const result = await generateStructuredFAQsBatch([{
+        title: page.title,
+        content: page.content,
+        images: page.images,
+        url: page.url,
+        humanReadableName: page.humanReadableName,
+        lastUpdated: page.lastUpdated
+      }]);
+
+      // Get first result since we passed a single page
+      const firstPassResult = result[0];
+      if (!firstPassResult) {
+        results.set(page.title, false);
+        completionStatus.set(page.title, { firstPass: false, secondPass: false });
+        return null;
+      }
+
+      // Save first pass FAQs immediately
+      const { title, faqs, originalUrl, originalHumanReadableName, last_updated } = firstPassResult;
+      try {
+        await saveStructuredFAQ(title, originalUrl, originalHumanReadableName, last_updated, faqs);
+        console.log(`[processWithEnrichmentBatch] First pass FAQs saved for "${title}"`);
+        completionStatus.set(title, { firstPass: true, secondPass: false });
+
+        // Start second pass immediately after first pass saves
+        const pageForAdditionalFAQs = {
+          title,
+          content: page.content,
+          existingFAQs: faqs,
+          images: page.images,
+          lastUpdated: last_updated
+        };
+
+        const additionalFAQsResults = await generateAdditionalFAQsBatch([pageForAdditionalFAQs]);
+
+        if (additionalFAQsResults?.[0]) {
+          console.log(`[processWithEnrichmentBatch] ✅ Found additional FAQs for "${title}"`);
+          await saveAdditionalFAQs(title, additionalFAQsResults[0], originalUrl, originalHumanReadableName, last_updated);
+          console.log(`[processWithEnrichmentBatch] Second pass FAQs saved for "${title}"`);
+          completionStatus.set(title, { firstPass: true, secondPass: true });
+        } else {
+          console.log(`[processWithEnrichmentBatch] No additional FAQs for "${title}"`);
+          completionStatus.set(title, { firstPass: true, secondPass: true }); // Mark second pass as done even if no results
+        }
+
+        // Now both passes are complete for this page
+        results.set(title, true);
+        await supabase
+          .from("processing_queue")
+          .update({
+            status: "completed",
+            processed_at: new Date().toISOString(),
+          })
+          .eq("title", title);
+
+        console.log(`[processWithEnrichmentBatch] ✅ All processing completed for "${title}"`);
+        return firstPassResult;
+
+      } catch (error) {
+        console.error(`[processWithEnrichmentBatch] Error processing "${title}":`, error);
+        results.set(title, false);
+        completionStatus.set(title, { firstPass: false, secondPass: false });
+
+        await supabase
+          .from("processing_queue")
+          .update({
+            status: "failed",
+            error_message: error.message,
+            processed_at: new Date().toISOString(),
+          })
+          .eq("title", title);
+
+        return null;
+      }
+    }));
+
+    const successCount = Array.from(results.values()).filter(Boolean).length;
+    console.log(`[processWithEnrichmentBatch] ✅ Successfully completed processing ${successCount}/${pages.length} pages`);
+    console.log(`[processWithEnrichmentBatch] Results summary:`, Object.fromEntries(results));
+
+    return Object.fromEntries(results);
+
+  } catch (error) {
+    console.error(`[processWithEnrichmentBatch] ❌ Error in batch processing:`, error);
+    pages.forEach(page => {
+      if (!results.has(page.title)) {
+        results.set(page.title, false);
+      }
+    });
+    return Object.fromEntries(results);
+  }
+}
+
 
 // Sliding window for managing two-pass processing
 class ProcessingQueue {
@@ -1728,140 +1926,164 @@ async function main() {
       console.log(`[main] ✅ Ready to process ${pagesToProcess} pages in parallel`);
 
       if (pagesToProcess > 0) {
-        console.log(`[main] 🚀 Sending ${pagesToProcess} pages to OpenAI in parallel...`);
+        // Process pages in batches
+        const BATCH_SIZE = 5; // Configurable batch size
+        console.log(`[main] 🚀 Processing ${pagesToProcess} pages in batches of ${BATCH_SIZE}...`);
 
-        // **Send all pages to OpenAI in parallel**
-        await Promise.all(
-          updatedPendingPages.map(async (pendingPage) => {
-            try {
-              const cleanTitle = pendingPage.title.replace(/^\/wiki\//, ""); // Ensure correct title
-              console.log(`[main] Processing page from queue: "${cleanTitle}"`);
+        // Process pages in batch chunks
+        for (let i = 0; i < updatedPendingPages.length; i += BATCH_SIZE) {
+          const currentBatch = updatedPendingPages.slice(i, i + BATCH_SIZE);
+          console.log(`[main] Processing batch ${Math.floor(i/BATCH_SIZE) + 1} of ${Math.ceil(updatedPendingPages.length/BATCH_SIZE)}`);
 
-              // Update status to processing
-              const { error: updateError } = await supabase
-                .from("processing_queue")
-                .update({
-                  status: "processing",
-                  attempts: (pendingPage.attempts || 0) + 1,
-                })
-                .eq("id", pendingPage.id);
+          // Prepare all pages in current batch
+          const preparedPages = await Promise.all(
+            currentBatch.map(async (pendingPage) => {
+              try {
+                const cleanTitle = pendingPage.title.replace(/^\/wiki\//, "");
+                console.log(`[main] Preparing page from queue: "${cleanTitle}"`);
 
-              if (updateError) {
-                console.error(`[main] Error updating page status:`, updateError);
-                return;
-              }
-
-              // Check if already exists in FAQ files
-              const { data: existingEntry, error: existenceError } = await supabase
-                .from("faq_files")
-                .select("id")
-                .eq("slug", formatWikipediaSlug(cleanTitle))
-                .limit(1)
-                .maybeSingle();
-
-              if (existenceError) {
-                console.error(`[main] Error checking slug existence for "${cleanTitle}":`, existenceError.message);
-                return;
-              }
-
-              if (existingEntry) {
-                console.log(`[main] Skipping "${cleanTitle}" as it already exists in the database.`);
-
-                // Update queue status to completed for already existing pages
-                await supabase
+                // Update status to processing
+                const { error: updateError } = await supabase
                   .from("processing_queue")
                   .update({
-                    status: "completed",
-                    processed_at: new Date().toISOString(),
+                    status: "processing",
+                    attempts: (pendingPage.attempts || 0) + 1,
                   })
                   .eq("id", pendingPage.id);
 
-                return;
+                if (updateError) {
+                  console.error(`[main] Error updating page status:`, updateError);
+                  return null;
+                }
+
+                // Check if already exists in FAQ files
+                const { data: existingEntry, error: existenceError } = await supabase
+                  .from("faq_files")
+                  .select("id")
+                  .eq("slug", formatWikipediaSlug(cleanTitle))
+                  .limit(1)
+                  .maybeSingle();
+
+                if (existenceError) {
+                  console.error(`[main] Error checking slug existence for "${cleanTitle}":`, existenceError.message);
+                  return null;
+                }
+
+                if (existingEntry) {
+                  console.log(`[main] Skipping "${cleanTitle}" as it already exists in the database.`);
+                  await supabase
+                    .from("processing_queue")
+                    .update({
+                      status: "completed",
+                      processed_at: new Date().toISOString(),
+                    })
+                    .eq("id", pendingPage.id);
+                  return null;
+                }
+
+                // Metadata fetching
+                const metadata = await fetchWikipediaMetadata(cleanTitle);
+                const { lastUpdated, humanReadableName } = metadata;
+
+                if (!humanReadableName) {
+                  console.warn(`[main] No human-readable name found for "${cleanTitle}". Skipping...`);
+                  await supabase
+                    .from("processing_queue")
+                    .update({
+                      status: "failed",
+                      error_message: "No human-readable name found",
+                      processed_at: new Date().toISOString(),
+                    })
+                    .eq("id", pendingPage.id);
+                  return null;
+                }
+
+                const pageData = await fetchWikipediaPage(cleanTitle);
+                if (!pageData) {
+                  console.error(`[main] Skipping "${cleanTitle}" due to empty or invalid content.`);
+                  await supabase
+                    .from("processing_queue")
+                    .update({
+                      status: "failed",
+                      error_message: "Failed to fetch page content",
+                      processed_at: new Date().toISOString(),
+                    })
+                    .eq("id", pendingPage.id);
+                  return null;
+                }
+
+                const { content, images } = pageData;
+
+                // Save metadata
+                console.log(`[main] Saving metadata for "${cleanTitle}"`);
+                const metadataSaved = await saveMetadata(cleanTitle, humanReadableName, supabase);
+
+                if (!metadataSaved) {
+                  console.error(`[main] Failed to save metadata for "${cleanTitle}".`);
+                  await supabase
+                    .from("processing_queue")
+                    .update({
+                      status: "failed",
+                      error_message: "Failed to save metadata",
+                      processed_at: new Date().toISOString(),
+                    })
+                    .eq("id", pendingPage.id);
+                  return null;
+                }
+
+                return {
+                  title: cleanTitle,
+                  content,
+                  images,
+                  url: pendingPage.url,
+                  humanReadableName,
+                  lastUpdated,
+                  queueId: pendingPage.id
+                };
+              } catch (error) {
+                console.error(`[main] Error preparing page ${pendingPage.title}:`, error);
+                return null;
               }
+            })
+          );
 
-              // Metadata fetching
-              const metadata = await fetchWikipediaMetadata(cleanTitle);
-              const { lastUpdated, humanReadableName } = metadata;
+          // Filter out failed preparations
+          const validPages = preparedPages.filter(Boolean);
 
-              if (!humanReadableName) {
-                console.warn(`[main] No human-readable name found for "${cleanTitle}". Skipping...`);
+          if (validPages.length > 0) {
+            console.log(`[main] Processing batch of ${validPages.length} valid pages with batch processor...`);
 
-                await supabase
-                  .from("processing_queue")
-                  .update({
-                    status: "failed",
-                    error_message: "No human-readable name found",
-                    processed_at: new Date().toISOString(),
-                  })
-                  .eq("id", pendingPage.id);
+            // Process the batch using our new batch processor
+            const processResults = await processWithEnrichmentBatch(validPages);
 
-                return;
-              }
+            // Update queue status for all pages in batch
+          await Promise.all(
+              validPages.map(async (page) => {
+                try {
+                  const pageSuccess = processResults[page.title] || false;
+                  await supabase
+                    .from("processing_queue")
+                    .update({
+                      status: pageSuccess ? "completed" : "failed",
+                      processed_at: new Date().toISOString(),
+                      error_message: pageSuccess ? null : "Processing failed"
+                    })
+                    .eq("id", page.queueId);
 
-              const pageData = await fetchWikipediaPage(cleanTitle);
-              if (!pageData) {
-                console.error(`[main] Skipping "${cleanTitle}" due to empty or invalid content.`);
-
-                await supabase
-                  .from("processing_queue")
-                  .update({
-                    status: "failed",
-                    error_message: "Failed to fetch page content",
-                    processed_at: new Date().toISOString(),
-                  })
-                  .eq("id", pendingPage.id);
-
-                return;
-              }
-
-              const { content, images } = pageData;
-
-              // Save metadata
-              console.log(`[main] Saving metadata for "${cleanTitle}"`);
-              const metadataSaved = await saveMetadata(cleanTitle, humanReadableName, supabase);
-
-              if (!metadataSaved) {
-                console.error(`[main] Failed to save metadata for "${cleanTitle}".`);
-
-                await supabase
-                  .from("processing_queue")
-                  .update({
-                    status: "failed",
-                    error_message: "Failed to save metadata",
-                    processed_at: new Date().toISOString(),
-                  })
-                  .eq("id", pendingPage.id);
-
-                return;
-              }
-
-              // Process the page
-              const success = await processWithEnrichment(
-                cleanTitle,
-                content,
-                images,
-                pendingPage.url,
-                humanReadableName,
-                lastUpdated
-              );
-
-              if (success) {
-                console.log(`[main] ✅ Successfully processed: ${cleanTitle}`);
-
-                // Update queue status to completed
-                await supabase
-                  .from("processing_queue")
-                  .update({
-                    status: "completed",
-                    processed_at: new Date().toISOString(),
-                  })
-                  .eq("id", pendingPage.id);
-              }
-            } catch (error) {
-              console.error(`[main] Error processing page ${pendingPage.title}:`, error);
-            }
-          })
-        );
+                  console.log(`[main] ${pageSuccess ? "✅ Successfully processed" : "❌ Failed to process"}: ${page.title}`);
+                } catch (error) {
+                  console.error(`[main] Error updating queue status for ${page.title}:`, error);
+                }
+              })
+            );
+          }
+          
+          // Add a small delay between batches to respect rate limits
+          if (i + BATCH_SIZE < updatedPendingPages.length) {
+            console.log("[main] Waiting before processing next batch...");
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
       }
     }
 
