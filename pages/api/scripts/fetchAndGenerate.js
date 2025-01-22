@@ -699,7 +699,6 @@ const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
 
   for (let attempt = 0; attempt < retryAttempts; attempt++) {
     try {
-      await openaiRateLimiter.acquireToken();
 
       const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
 
@@ -784,7 +783,6 @@ const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
 
   for (let attempt = 0; attempt < retryAttempts; attempt++) {
     try {
-      await openaiRateLimiter.acquireToken();
 
       console.log(`[generateAdditionalFAQs] Processing ${title} (Attempt ${attempt + 1}/${retryAttempts})`);
 
@@ -1570,7 +1568,6 @@ async function processWikipediaMediaPages(maxPages) {
     const url = `https://en.wikipedia.org/wiki/${title}`;
 
     console.log(`[processWikipediaMediaPages] 🛠 Generating FAQs for "${title}" (before acquiring OpenAI token)`);
-    await openaiRateLimiter.acquireToken();  // Ensure OpenAI rate limits are respected
     console.log(`[processWikipediaMediaPages] ✅ Acquired OpenAI token for "${title}"`);
 
     console.log(`[processWikipediaMediaPages] 🤖 Sending "${title}" to OpenAI...`);
