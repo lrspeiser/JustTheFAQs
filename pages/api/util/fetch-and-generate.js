@@ -1,38 +1,21 @@
-// pages/api/util/fetch-and-generate.js
-import { initClients } from '../../../lib/db';
-import { main } from '../scripts/fetchAndGenerate';
+import { main } from "../scripts/fetchAndGenerate";
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  console.log("[fetch-and-generate] Received request:", req.method);
 
-  try {
-    console.log('[API] Starting fetch and generate process...');
+  if (req.method === "POST") {
+    try {
+      console.log("[fetch-and-generate] Starting main processing...");
+      await main();  // Run the process
 
-    // Initialize clients
-    const { openai, supabase } = initClients();
-
-    if (!openai || !supabase) {
-      console.error("[API] ❌ One or more clients failed to initialize.");
-      return res.status(500).json({ error: 'Failed to initialize required clients' });
+      console.log("[fetch-and-generate] Process successfully started.");
+      res.status(200).json({ message: "Process started successfully." });
+    } catch (error) {
+      console.error("[fetch-and-generate] Error:", error);
+      res.status(500).json({ message: "Error starting the process", error: error.message });
     }
-
-    // Call main without allowing it to terminate the process
-    const processedCount = await main(openai, supabase);
-
-    console.log(`[API] Process completed successfully. Processed ${processedCount} pages.`);
-    return res.status(200).json({ 
-      success: true, 
-      message: `Fetch and generate process completed successfully. Processed ${processedCount} pages.`,
-      processedCount
-    });
-
-  } catch (error) {
-    console.error('[API] Error in fetch and generate process:', error);
-    return res.status(500).json({ 
-      error: 'Failed to execute fetch and generate process',
-      details: error.message 
-    });
+  } else {
+    console.log("[fetch-and-generate] Invalid request method:", req.method);
+    res.status(405).json({ message: "Method Not Allowed" });
   }
 }

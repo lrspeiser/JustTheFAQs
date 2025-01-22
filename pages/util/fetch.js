@@ -8,10 +8,12 @@ export default function FetchAndGeneratePage() {
   const logsEndRef = useRef(null);
 
   // Auto scroll to bottom when new logs arrive
+  const scrollToBottom = () => {
+    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
+    scrollToBottom();
   }, [logs]);
 
   const addLog = (message, type = 'info') => {
@@ -26,59 +28,60 @@ export default function FetchAndGeneratePage() {
     setLoading(true);
     setLogs([]);
     setStatus('Starting the fetch and generate process...');
+    console.log("[FetchAndGenerate] Sending POST request to backend...");
 
     try {
-      const response = await fetch('/api/util/fetch-and-generate', {
-        method: 'POST',
-      });
+      const response = await fetch('/api/util/fetch-and-generate', { method: 'POST' });
 
       if (!response.ok) {
-        throw new Error('Failed to start the process');
+        const errorData = await response.json();
+        console.error("[FetchAndGenerate] Error from backend:", errorData);
+        throw new Error(errorData.message || "Failed to start the process");
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      console.log("[FetchAndGenerate] Process successfully started. Listening for logs...");
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
+      // Start listening to logs
+      const eventSource = new EventSource('/api/util/fetch-and-generate');
 
-        const text = decoder.decode(value);
-        const lines = text.split('\n').filter(line => line.trim());
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("[FetchAndGenerate] SSE message received:", data);
 
-        for (const line of lines) {
-          try {
-            if (line.startsWith('data: ')) {
-              const jsonStr = line.slice(6);
-              const data = JSON.parse(jsonStr);
-
-              if (data.type === 'log') {
-                addLog(data.message, data.logType || 'info');
-              } else if (data.type === 'error') {
-                addLog(data.message, 'error');
-                setStatus(`Error: ${data.message}`);
-                setLoading(false);
-                break;
-              } else if (data.type === 'complete') {
-                addLog('Process completed', 'success');
-                setStatus(data.message || 'Process completed successfully');
-                setLoading(false);
-                break;
-              }
-            }
-          } catch (err) {
-            console.warn('Error parsing log line:', err);
+          if (data.type === 'log') {
+            addLog(data.message, data.logType || 'info');
+          } else if (data.type === 'error') {
+            addLog(data.message, 'error');
+            setStatus(`Error: ${data.message}`);
+            eventSource.close();
+            setLoading(false);
+          } else if (data.type === 'complete') {
+            addLog('Process completed', 'success');
+            setStatus(data.message || 'Process completed successfully');
+            eventSource.close();
+            setLoading(false);
           }
+        } catch (err) {
+          console.error('[FetchAndGenerate] Error parsing SSE data:', err);
         }
-      }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error('[FetchAndGenerate] SSE Connection Error:', error);
+        addLog('Connection lost. Please check the console for errors.', 'error');
+        eventSource.close();
+        setLoading(false);
+      };
 
     } catch (error) {
-      console.error('[FetchAndGenerate] Error:', error);
+      console.error("[FetchAndGenerate] Fetch Error:", error);
       addLog(`Error: ${error.message}`, 'error');
       setStatus(`Error: ${error.message}`);
       setLoading(false);
     }
   };
+
 
   return (
     <div className="container mx-auto p-4 font-sans">
