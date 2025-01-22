@@ -8,7 +8,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("[fetch-and-generate] ❌ Missing Supabase environment variables");
 }
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey); // ✅ Correctly initialize Supabase
+const supabase = createClient(supabaseUrl, supabaseAnonKey); // ✅ Initialize Supabase
 
 export default async function handler(req, res) {
   console.log("[fetch-and-generate] Received request:", req.method);
@@ -16,8 +16,11 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       console.log("[fetch-and-generate] ✅ Running main process...");
-      await main(); // Call your main function
 
+      // ✅ Ensure OpenAI requests complete before returning a response
+      await main();
+
+      console.log("[fetch-and-generate] ✅ Function completed.");
       res.status(200).json({ message: "FAQ generation process started successfully." });
     } catch (error) {
       console.error("[fetch-and-generate] ❌ Error:", error);
