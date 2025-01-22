@@ -1497,11 +1497,16 @@ async function fetchWikipediaPage(title) {
 
 // **Step 5: Generate and Save FAQs for Wikipedia Media Pages**
 async function processWikipediaMediaPages(maxPages) {
-  console.log("[processWikipediaMediaPages] Starting process...");
+  console.log("[processWikipediaMediaPages] 🟢 Starting process...");
   let processedCount = 0;
 
+  console.log("[processWikipediaMediaPages] 🔎 Fetching media links...");
   const mediaLinks = await fetchMediaLinksFromFAQs();
+  console.log(`[processWikipediaMediaPages] ✅ Found ${mediaLinks.length} media links.`);
+
+  console.log("[processWikipediaMediaPages] 🔎 Fetching Wikipedia titles for media...");
   const wikipediaTitles = await fetchWikipediaTitlesForMedia(mediaLinks);
+  console.log(`[processWikipediaMediaPages] ✅ Found ${wikipediaTitles.length} Wikipedia titles.`);
 
   for (let title of wikipediaTitles) {
     if (processedCount >= maxPages) {
@@ -1509,47 +1514,47 @@ async function processWikipediaMediaPages(maxPages) {
       return processedCount;
     }
 
-    console.log(`[processWikipediaMediaPages] Processing Wikipedia media page: "${title}"`);
+    console.log(`[processWikipediaMediaPages] 📄 Processing Wikipedia media page: "${title}"`);
 
+    console.log("[processWikipediaMediaPages] 🔎 Fetching metadata...");
     const metadata = await fetchWikipediaMetadata(title);
     const { lastUpdated, humanReadableName } = metadata;
+    console.log(`[processWikipediaMediaPages] ✅ Metadata fetched: ${JSON.stringify(metadata)}`);
 
     if (!humanReadableName) {
-      console.warn(`[processWikipediaMediaPages] No human-readable name for "${title}". Skipping.`);
+      console.warn(`[processWikipediaMediaPages] ⚠️ No human-readable name for "${title}". Skipping.`);
       continue;
     }
 
+    console.log("[processWikipediaMediaPages] 🔎 Fetching Wikipedia page content...");
     const pageData = await fetchWikipediaPage(title);
     if (!pageData) {
-      console.error(`[processWikipediaMediaPages] Skipping "${title}" due to empty content.`);
+      console.error(`[processWikipediaMediaPages] ❌ Skipping "${title}" due to empty content.`);
       continue;
     }
 
     const { content, images } = pageData;
     const url = `https://en.wikipedia.org/wiki/${title}`;
 
-    console.log(`[processWikipediaMediaPages] Generating FAQs for "${title}"`);
+    console.log(`[processWikipediaMediaPages] 🛠 Generating FAQs for "${title}" (before acquiring OpenAI token)`);
+    await openaiRateLimiter.acquireToken();  // Ensure OpenAI rate limits are respected
+    console.log(`[processWikipediaMediaPages] ✅ Acquired OpenAI token for "${title}"`);
 
-    try {
-      // Ensure we respect OpenAI rate limits before calling the AI
-      await openaiRateLimiter.acquireToken();
+    console.log(`[processWikipediaMediaPages] 🤖 Sending "${title}" to OpenAI...`);
+    const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
 
-      const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
-
-      if (success) {
-        processedCount++;
-        console.log(`[processWikipediaMediaPages] ✅ Successfully processed media page: ${title} (Total: ${processedCount})`);
-      } else {
-        console.error(`[processWikipediaMediaPages] ❌ Failed to process media page: ${title}`);
-      }
-    } catch (error) {
-      console.error(`[processWikipediaMediaPages] ❌ Error processing OpenAI request for ${title}:`, error.message);
+    if (success) {
+      processedCount++;
+      console.log(`[processWikipediaMediaPages] ✅ Successfully processed media page: ${title} (Total: ${processedCount})`);
+    } else {
+      console.error(`[processWikipediaMediaPages] ❌ Failed to process media page: ${title}`);
     }
   }
 
-  console.log(`[processWikipediaMediaPages] Process complete. Total processed: ${processedCount}`);
+  console.log(`[processWikipediaMediaPages] 🎉 Process complete. Total processed: ${processedCount}`);
   return processedCount;
 }
+
 
 
 const isPageAlreadyProcessed = async (title) => {
