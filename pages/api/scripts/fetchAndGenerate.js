@@ -180,7 +180,7 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)"
+                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page). Do not use links that say: (Redirected from <link>) because they don't have Wikipedia pages."
                 },
                 media_links: {
                   type: "array",
@@ -219,7 +219,7 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)",
+                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page). Do not use links that say: (Redirected from <link>) because they don't have Wikipedia pages.",
                 },
                 media_links: {
                   type: "array",
@@ -619,59 +619,43 @@ const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
 // Add this before the openaiRateLimiter definition
 class RateLimiter {
   constructor(maxRequests, timeWindow) {
-    this.maxRequests = maxRequests;      // Maximum requests allowed
-    this.timeWindow = timeWindow;        // Time window in milliseconds
-    this.requests = [];                  // Array to track request timestamps
-    this.isPaused = false;              // Flag to control rate limiting
+    this.maxRequests = maxRequests;
+    this.timeWindow = timeWindow;
+    this.requests = [];
+    this.isPaused = false;
+    this.activeTokens = 0;  // Track active tokens
   }
 
   async acquireToken() {
-    // Wait if rate limiter is paused
+    console.log(`[RateLimiter] Attempting to acquire token. Active tokens: ${this.activeTokens}`);
+
     while (this.isPaused) {
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     const now = Date.now();
-
-    // Remove timestamps older than the time window
     this.requests = this.requests.filter(time => now - time < this.timeWindow);
 
-    // If at capacity, wait until the oldest request expires
     if (this.requests.length >= this.maxRequests) {
       const oldestRequest = this.requests[0];
       const waitTime = this.timeWindow - (now - oldestRequest);
 
       if (waitTime > 0) {
-        console.log(`[RateLimiter] Rate limit reached. Waiting ${waitTime}ms...`);
+        console.log(`[RateLimiter] Rate limit reached. Waiting ${waitTime}ms... Active tokens: ${this.activeTokens}`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
       }
 
-      // Clean up expired timestamps again after waiting
       this.requests = this.requests.filter(time => Date.now() - time < this.timeWindow);
     }
 
-    // Add current request timestamp
-    this.requests.push(Date.now());
+    this.requests.push(now);
+    this.activeTokens++;
+    console.log(`[RateLimiter] Token acquired. Active tokens: ${this.activeTokens}`);
   }
 
-  pause() {
-    this.isPaused = true;
-    console.log('[RateLimiter] Rate limiting paused');
-  }
-
-  resume() {
-    this.isPaused = false;
-    console.log('[RateLimiter] Rate limiting resumed');
-  }
-
-  getCurrentUsage() {
-    const now = Date.now();
-    this.requests = this.requests.filter(time => now - time < this.timeWindow);
-    return this.requests.length;
-  }
-
-  getRemainingCapacity() {
-    return this.maxRequests - this.getCurrentUsage();
+  releaseToken() {
+    this.activeTokens--;
+    console.log(`[RateLimiter] Token released. Active tokens: ${this.activeTokens}`);
   }
 }
 
