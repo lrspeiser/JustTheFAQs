@@ -5,17 +5,27 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     try {
-      console.log("[fetch-and-generate] Starting main processing...");
-      await main();  // Run the process
+      console.log("[fetch-and-generate] Queuing task...");
 
-      console.log("[fetch-and-generate] Process successfully started.");
-      res.status(200).json({ message: "Process started successfully." });
+      // Save request in Supabase for later processing
+      const { data, error } = await supabase
+        .from("processing_queue")
+        .insert([{ status: "pending", created_at: new Date().toISOString() }]);
+
+      if (error) {
+        throw new Error("Failed to queue the request: " + error.message);
+      }
+
+      console.log("[fetch-and-generate] Task queued successfully.");
+      res.status(202).json({ message: "Process queued successfully." });
+
+      // Run processing asynchronously (won't block response)
+      main();
     } catch (error) {
       console.error("[fetch-and-generate] Error:", error);
-      res.status(500).json({ message: "Error starting the process", error: error.message });
+      res.status(500).json({ message: "Error queuing the process", error: error.message });
     }
   } else {
-    console.log("[fetch-and-generate] Invalid request method:", req.method);
     res.status(405).json({ message: "Method Not Allowed" });
   }
 }
