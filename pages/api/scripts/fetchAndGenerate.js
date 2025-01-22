@@ -703,23 +703,20 @@ const generateStructuredFAQs = async (title, content, rawTimestamp, images) => {
 
   for (let attempt = 0; attempt < retryAttempts; attempt++) {
     try {
-      // Wait for rate limit token
+      // Ensure we respect OpenAI rate limits
       await openaiRateLimiter.acquireToken();
 
       const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
 
-      // Log attempt information
       console.log(`[generateStructuredFAQs] Processing ${title} (Attempt ${attempt + 1}/${retryAttempts})`);
       console.log(`[generateStructuredFAQs] Sending ${truncatedMediaLinks.length} images to OpenAI for processing.`);
 
-      // Ensure images are passed in the prompt (preserved original structure)
       const contentWithImages = `
         ${truncatedContent}
         Relevant Images:
         ${truncatedMediaLinks.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
       `;
 
-      // Create OpenAI request with preserved system and user messages
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -762,9 +759,10 @@ ${contentWithImages}`,
     }
   }
 
-  console.error(`[generateStructuredFAQs] All attempts failed for ${title}:`, lastError);
-  return null;
+  console.error(`[generateStructuredFAQs] ❌ All attempts failed for ${title}. Skipping to next page.`);
+  return false;
 };
+
 
 const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
   const retryAttempts = 3;
@@ -772,23 +770,20 @@ const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
 
   for (let attempt = 0; attempt < retryAttempts; attempt++) {
     try {
-      // Wait for rate limit token
+      // Ensure we respect OpenAI rate limits
       await openaiRateLimiter.acquireToken();
 
       console.log(`[generateAdditionalFAQs] Processing ${title} (Attempt ${attempt + 1}/${retryAttempts})`);
 
       const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
 
-      // Preserve image handling logic
       const usedImages = new Set(existingFAQs.flatMap(faq => faq.media_links || []));
       const unusedImages = truncatedMediaLinks.filter(img => !usedImages.has(img));
 
-      // Preserve existing questions formatting
       const existingQuestions = existingFAQs.map(faq => 
         `- ${faq.question}\n  Subheader: ${faq.subheader}\n  Used images: ${(faq.media_links || []).join(", ")}`
       ).join('\n');
 
-      // Preserve content structure
       const contentWithImages = `
         ${truncatedContent}
 
@@ -796,7 +791,6 @@ const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
         ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
       `;
 
-      // Create OpenAI request with preserved messages
       const response = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [
@@ -806,7 +800,7 @@ const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
           },
           {
             role: "user",
-            content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high quality standards. Focus on interesting aspects that weren't covered in the first pass. DO NOT REPEAT EXISTING QUESTIONS.
+            content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high-quality standards. Focus on interesting aspects that weren't covered in the first pass. DO NOT REPEAT EXISTING QUESTIONS.
 
 Title: ${title}
 
@@ -851,7 +845,7 @@ Requirements:
     }
   }
 
-  console.error(`[generateAdditionalFAQs] All attempts failed for ${title}:`, lastError);
+  console.error(`[generateAdditionalFAQs] ❌ All attempts failed for ${title}. Skipping additional FAQs.`);
   return [];
 };
 
@@ -1535,19 +1529,28 @@ async function processWikipediaMediaPages(maxPages) {
     const url = `https://en.wikipedia.org/wiki/${title}`;
 
     console.log(`[processWikipediaMediaPages] Generating FAQs for "${title}"`);
-    const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
 
-    if (success) {
-      processedCount++;
-      console.log(`[processWikipediaMediaPages] ✅ Successfully processed media page: ${title} (Total: ${processedCount})`);
-    } else {
-      console.error(`[processWikipediaMediaPages] ❌ Failed to process media page: ${title}`);
+    try {
+      // Ensure we respect OpenAI rate limits before calling the AI
+      await openaiRateLimiter.acquireToken();
+
+      const success = await processWithEnrichment(title, content, images, url, humanReadableName, lastUpdated);
+
+      if (success) {
+        processedCount++;
+        console.log(`[processWikipediaMediaPages] ✅ Successfully processed media page: ${title} (Total: ${processedCount})`);
+      } else {
+        console.error(`[processWikipediaMediaPages] ❌ Failed to process media page: ${title}`);
+      }
+    } catch (error) {
+      console.error(`[processWikipediaMediaPages] ❌ Error processing OpenAI request for ${title}:`, error.message);
     }
   }
 
   console.log(`[processWikipediaMediaPages] Process complete. Total processed: ${processedCount}`);
   return processedCount;
 }
+
 
 const isPageAlreadyProcessed = async (title) => {
   const slug = formatWikipediaSlug(title);
