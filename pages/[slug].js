@@ -142,11 +142,14 @@ export default function FAQPage() {
                                                 displayName = displayName.replace("/wiki/", "");
                                             }
 
-                                            // Format slug properly for URL routing (ensure lowercase)
+                                            // Preserve slug format for URL routing
                                             const linkSlug = displayName
-                                                .replace(/_/g, '-') // Convert underscores to dashes
+                                                .replace(/_/g, '-') // Ensure URL uses dashes
                                                 .replace(/[^a-zA-Z0-9-]+/g, '') // Remove invalid characters
                                                 .toLowerCase();
+
+                                            // Format display name (keep original formatting but replace underscores)
+                                            const formattedDisplayName = displayName.replace(/_/g, ' ');
 
                                             const isPageAvailable = existingFaqSlugs.includes(linkSlug);
 
@@ -154,14 +157,14 @@ export default function FAQPage() {
                                                 <li key={index}>
                                                     {isPageAvailable ? (
                                                         <a
-                                                            href={`/${linkSlug}`} // ✅ Ensuring lowercase for routing
+                                                            href={`/${linkSlug}`} // ✅ Keep URL with dashes
                                                             className="related-topic-link"
                                                         >
-                                                            {displayName.replace(/-/g, ' ')} {/* Keep readable capitalization */}
+                                                            {formattedDisplayName} {/* ✅ Display with spaces */}
                                                         </a>
                                                     ) : (
                                                         <span className="unavailable-topic">
-                                                            {displayName.replace(/-/g, ' ')}
+                                                            {formattedDisplayName}
                                                         </span>
                                                     )}
                                                 </li>

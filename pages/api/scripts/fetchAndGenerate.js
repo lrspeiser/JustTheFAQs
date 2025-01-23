@@ -14,8 +14,8 @@ console.log("NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL ||
 console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? "Loaded" : "Missing");
 
 let globalSupabase = null; // Ensure single instance
-const BATCH_SIZE = 32;
-const MEDIA_PAGE_LIMIT = 5; // Change this value if you want to process more pages
+const BATCH_SIZE = 500;
+const MEDIA_PAGE_LIMIT = 500; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 let embedder = null;
 const RETRY_ATTEMPTS = 3;
@@ -164,11 +164,11 @@ const tools = [
     type: "function",
     function: {
       name: "generate_structured_faqs",
-      description: "Generate structured Questions and Answers from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough, using all of the information from Wikipedia, especially where there are specific details like names, dates, locations, numbers, formulas and so forth, but focus on what most people would find the most interesting questions to be answered and expand upon those answers. If there are any images that go with the answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links. There should be a minimum of one question for every section within the Wikipedia page.",
+      description: "Generate structured Questions and Answers from Wikipedia content by identifying key concepts and framing them as fascinating Q&A pairs. Start with the most interesting questions and work your way to the least interesting. Avoiding unnecessary jargon and filler language. Be thorough, using all of the information from Wikipedia even if it is outside the section where you got the question. Try to be comprehensive on specific details like names, dates, locations, numbers, formulas and so forth. If there are any images that would enrich the question or answer, make sure to include those URLs. Do NOT change the case of Wikipedia page titles or cross-links. There should be a minimum of one question for every section within the Wikipedia page.",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "The title of the Wikipedia page." },
+          title: { type: "string", description: "The title of the Wikipedia page. All of the questions and answers should be related specifically to this page." },
           human_readable_name: { type: "string", description: "The human-readable page name." },
           last_updated: { type: "string", description: "The last update timestamp of the page." },
           faqs: {
@@ -177,8 +177,8 @@ const tools = [
               type: "object",
               properties: {
                 subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentances of content about the subject of the page." },
-                question: { type: "string", description: "A question derived from the content. These should be interesting questions where we have something unique in the answer to share.There should be a minimum of one question for every section within the Wikipedia page." },
-                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of two sentances of content." },
+                question: { type: "string", description: "A question derived from the content. These should be interesting questions where we have something unique in the answer to share. There should be a minimum of one question for every section within the Wikipedia page and if that section has a lot of specific information, try to be comprehensive in your list of questions." },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of 3 sentances of content and ideally 10 sentances of content, but no filler language, just facts unique to the question." },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
@@ -187,7 +187,7 @@ const tools = [
                 media_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant media links from the content." },
-                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. It should start with https://. It should not start with 'url:https://'. Don't reuse the same image for more than one Q&A. If there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
+                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. It should start with https://. It should not start with 'url:https://'. Don't reuse the same image for more than one Q&A. Try hard to find a good image link for the topic, but if there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
                 },
               },
               required: ["subheader", "question", "answer"],
@@ -203,11 +203,11 @@ const tools = [
     type: "function",
     function: {
       name: "generate_additional_faqs",
-      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Ensure clarity, relevance, and engagement, avoiding unnecessary jargon. Be thorough in finding new angles and uncovered information from Wikipedia, but focus on what most people would find the most interesting questions that we did not already create questions and answers for. Make sure to expand upon those answers comprehensively, especially where there are specific details like names, dates, locations, numbers, formulas and so forth. If there are any images that go with the answer, make sure to include those URLs, being careful not to reuse images from the first pass. Do NOT change the case of Wikipedia page titles or cross-links. There should be a minimum of one question for every section within the Wikipedia page.",
+      description: "Generate additional structured FAQs from Wikipedia content by identifying key concepts that weren't covered in the first pass. Like the initial pass, start with the most interesting questions and work your way to the least interesting. Avoiding unnecessary jargon and filler language. Be thorough, using all of the information from Wikipedia even if it is outside the section where you got the question. Try to be comprehensive on specific details like names, dates, locations, numbers, formulas and so forth. If there are any images that would enrich the question or answer, make sure to include those URLs, being careful not to reuse images from the first pass. Do NOT change the case of Wikipedia page titles or cross-links. There should be a minimum of one question for every section within the Wikipedia page.",
       parameters: {
         type: "object",
         properties: {
-          title: { type: "string", description: "The title of the Wikipedia page." },
+          title: { type: "string", description: "The title of the Wikipedia page. All of the questions and answers should be related specifically to this page." },
           human_readable_name: { type: "string", description: "The human-readable page name." },
           last_updated: { type: "string", description: "The last update timestamp of the page." },
           additional_faqs: {
@@ -216,8 +216,8 @@ const tools = [
               type: "object",
               properties: {
                 subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentances of content about the subject of the page." },
-                question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass. These should be interesting questions where we have something unique in the answer to share. There should be a minimum of one question for every section within the Wikipedia page." },
-                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of two sentances of content." },
+                question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass. These should be interesting questions where we have something unique in the answer to share. There should be a minimum of one question for every section within the Wikipedia page and if that section has a lot of specific information, try to be comprehensive in your list of questions." },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of 3 sentances of content and ideally 10 sentances of content, but no filler language, just facts unique to the question" },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
@@ -226,7 +226,7 @@ const tools = [
                 media_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant media links from the content." },
-                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. It should start with https://. It should not start with 'url:https://'. Don't reuse the same image for more than one Q&A. If there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
+                  description: "Media links (e.g., images) relevant to the Q&A. Use the links exactly as they were provided in the original Wikipedia file sent to you. It should start with https://. It should not start with 'url:https://'. Don't reuse the same image for more than one Q&A. Try hard to find a good image link for the topic, but if there is no image that fits the question very well and would add value to the reader, then don't include a media link.",
                 },
               },
               required: ["subheader", "question", "answer"],
@@ -443,7 +443,7 @@ ${contentWithImages}`
 }
 
 // Enhanced batch processing for additional FAQs
-async function generateAdditionalFAQsBatch(pages, batchSize = 5) {
+async function generateAdditionalFAQsBatch(pages) {
   console.log(`[generateAdditionalFAQsBatch] Starting batch processing of ${pages.length} pages`);
 
   const processAdditionalFAQs = async (page) => {
@@ -1943,7 +1943,6 @@ async function main() {
 
       if (pagesToProcess > 0) {
         // Process pages in batches
-        const BATCH_SIZE = 5; // Configurable batch size
         console.log(`[main] 🚀 Processing ${pagesToProcess} pages in batches of ${BATCH_SIZE}...`);
 
         // Process pages in batch chunks

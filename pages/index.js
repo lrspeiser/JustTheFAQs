@@ -76,9 +76,13 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
   return (
     <article className="faq-entry">
       <header className="entry-header">
-        <a href={`/${faq.page_slug || ''}`} className="page-name">
-          {getPageName()}
-        </a>
+        {faq.page_slug ? (
+          <a href={`/${formatWikiSlug(faq.page_slug)}`} className="page-name">
+            {faq.human_readable_name || formatHumanReadableName(faq.page_slug)}
+          </a>
+        ) : (
+          <span className="page-name">{getPageName()}</span>
+        )}
         {faq.similarity > 0 && (
           <div className="debug-info">
             <small>
