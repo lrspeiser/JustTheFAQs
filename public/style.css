@@ -32,6 +32,7 @@ body {
   color: #0645AD; /* Wikipedia blue */
   text-decoration: none;
   margin-bottom: 5px; /* Tighter spacing to subheader */
+  cursor: pointer; /* <-- Ensures a pointer (hand) cursor on hover */
 }
 
 .page-name:hover {
@@ -257,7 +258,8 @@ img {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   display: block;
 }
-/* Add these new styles to your existing CSS file */
+
+/* Enhanced Related Links with "Pill" style links */
 .related-links ul {
   list-style: none;
   padding: 0;

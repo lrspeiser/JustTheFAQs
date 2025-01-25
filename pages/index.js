@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import DOMPurify from 'dompurify';
+import Link from 'next/link';
 
 const FAQEntry = ({ faq, existingFaqSlugs }) => {
   // Add debug logging
@@ -90,12 +91,15 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
         )}
         {faq.similarity > 0 && (
           <div className="debug-info">
-            <small>
-              Match Score: {Math.round(faq.similarity * 100)}%
-            </small>
+            <small>Match Score: {Math.round(faq.similarity * 100)}%</small>
           </div>
         )}
       </header>
+
+      {/* Add this debug line to see the raw page_slug in the UI */}
+      <div style={{ fontSize: '0.9em', color: '#999' }}>
+        Debug Slug: {faq.page_slug || '(none)'}
+      </div>
 
       {faq.subheader && <div className="subheader">{faq.subheader}</div>}
 
