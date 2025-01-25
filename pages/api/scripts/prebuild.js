@@ -1,4 +1,5 @@
 // pages/api/scripts/prebuild.js
+
 import fs from 'fs';
 import path from 'path';
 
