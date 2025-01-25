@@ -21,10 +21,10 @@ const index = pc.index(indexName);
 // CLI argument for batch size
 const args = process.argv.slice(2);
 const limitArg = args.find(arg => arg.startsWith("--limit="));
-const BATCH_SIZE = limitArg ? parseInt(limitArg.split("=")[1], 10) : 10000; // Default to 10000
+const BATCH_SIZE = limitArg ? parseInt(limitArg.split("=")[1], 10) : 20000; // Default to 10000
 
 // NEW: We'll define a smaller chunk size to fetch each loop
-const CHUNK_SIZE = 100;
+const CHUNK_SIZE = 1000;
 
 console.log(`[Migration] 🚀 Starting migration with batch size: ${BATCH_SIZE}`);
 

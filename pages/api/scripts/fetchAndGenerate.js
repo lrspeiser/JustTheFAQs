@@ -20,8 +20,8 @@ const vectors = [];
 
 
 let globalSupabase = null; // Ensure single instance
-const BATCH_SIZE = 5;
-const MEDIA_PAGE_LIMIT = 5; // Change this value if you want to process more pages
+const BATCH_SIZE = 1000;
+const MEDIA_PAGE_LIMIT = 5000; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 let embedder = null;
 const RETRY_ATTEMPTS = 3;
@@ -182,9 +182,9 @@ const tools = [
             items: {
               type: "object",
               properties: {
-                subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentances of content about the subject of the page." },
+                subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentences of content about the subject of the page." },
                 question: { type: "string", description: "A question derived from the content. These should be interesting questions where we have something unique in the answer to share. There should be a minimum of one question for every section within the Wikipedia page and if that section has a lot of specific information, try to be comprehensive in your list of questions." },
-                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of 3 sentances of content and ideally 10 sentances of content, but no filler language, just facts unique to the question." },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of 3 sentences of content and ideally 10 sentences of content, but no filler language, just facts unique to the question." },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
@@ -221,9 +221,9 @@ const tools = [
             items: {
               type: "object",
               properties: {
-                subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentances of content about the subject of the page." },
+                subheader: { type: "string", description: "The subheader under which this FAQ falls. We should not use sections that have less than 2 sentences of content about the subject of the page." },
                 question: { type: "string", description: "A new question derived from the content that wasn't covered in the first pass. These should be interesting questions where we have something unique in the answer to share. There should be a minimum of one question for every section within the Wikipedia page and if that section has a lot of specific information, try to be comprehensive in your list of questions." },
-                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of 3 sentances of content and ideally 10 sentances of content, but no filler language, just facts unique to the question" },
+                answer: { type: "string", description: "The answer to the question. These should be rich with facts and data, but also written in an engaging manner that would appeal to a wide audience. They should have a minimum of 3 sentences of content and ideally 10 sentences of content, but no filler language, just facts unique to the question" },
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
@@ -822,7 +822,7 @@ class ProcessingQueue {
   }
 }
 
-const truncateContent = (content, mediaLinks, maxTokens = 100000) => {
+const truncateContent = (content, mediaLinks, maxTokens = 90000) => {
   // Estimate tokens based on characters (rough estimate: 4 characters = 1 token)
   const charLimit = maxTokens * 4;
   const mediaLinksText = mediaLinks.join("\n");

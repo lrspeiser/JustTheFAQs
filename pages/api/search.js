@@ -50,7 +50,7 @@ async function generateEmbedding(text, maxRetries = 3) {
 }
 
 // Query Pinecone for similar FAQs
-async function queryPinecone(queryEmbedding, topK = 10) {
+async function queryPinecone(queryEmbedding, topK = 50) {
   try {
     console.log('[API/Search] 🔍 Querying Pinecone for vector search...');
     const queryResult = await index.query({
