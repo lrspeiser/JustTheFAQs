@@ -5,7 +5,7 @@ import DOMPurify from 'dompurify';
 
 const FAQEntry = ({ faq, existingFaqSlugs }) => {
   // Add debug logging
-  console.log('FAQ Data Received:', {
+  console.log('[FAQEntry] Received FAQ data:', {
     id: faq.id,
     human_readable_name: faq.human_readable_name,
     page_slug: faq.page_slug,
@@ -16,7 +16,7 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
   });
 
   const getPageName = () => {
-    console.log('getPageName called with:', {
+    console.log('[FAQEntry] getPageName called:', {
       human_readable_name: faq.human_readable_name,
       title: faq.title
     });
@@ -56,6 +56,8 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
     }
   };
 
+  // If cross_links is stored as a string, we convert it to an array
+  // If it's an array, we just return it as-is
   const getRelatedTopics = () => {
     if (!faq.cross_links) return [];
     try {
@@ -72,6 +74,9 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
   };
 
   const relatedTopics = getRelatedTopics();
+
+  // Debug log to show question before rendering
+  console.log('[FAQEntry] 📝 Rendering question with HTML:', faq.question);
 
   return (
     <article className="faq-entry">
@@ -95,7 +100,16 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
       {faq.subheader && <div className="subheader">{faq.subheader}</div>}
 
       <div className="question-with-image">
-        <h2 className="question">Question: {faq.question}</h2>
+        {/* 
+          IMPORTANT: We now render the question using dangerouslySetInnerHTML
+          so that stored HTML, e.g. <i>Agent Elvis</i>, will actually display as italic text.
+        */}
+        <h2
+          className="question"
+          dangerouslySetInnerHTML={{
+            __html: `Question: ${DOMPurify.sanitize(faq.question)}`
+          }}
+        />
         {faq.media_link && (
           <div className="image">
             <img src={faq.media_link} alt="FAQ Thumbnail" loading="lazy" />
@@ -104,7 +118,12 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
       </div>
 
       <div className="answer-container">
-        <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(faq.answer) }}></div>
+        {/* The answer was already using dangerouslySetInnerHTML */}
+        <div
+          dangerouslySetInnerHTML={{
+            __html: DOMPurify.sanitize(faq.answer)
+          }}
+        ></div>
       </div>
 
       {relatedTopics.length > 0 && (
@@ -115,7 +134,7 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
               const displayName = formatHumanReadableName(topic);
               const slug = formatWikiSlug(topic);
 
-              // Now using the passed down existingFaqSlugs
+              // Now using the passed-down existingFaqSlugs
               const isPageAvailable = existingFaqSlugs?.includes(slug);
 
               return (
@@ -125,7 +144,14 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
                       {displayName}
                     </a>
                   ) : (
-                    <a className="related-topic-link" style={{ color: '#808080', cursor: 'default', pointerEvents: 'none' }}>
+                    <a
+                      className="related-topic-link"
+                      style={{
+                        color: '#808080',
+                        cursor: 'default',
+                        pointerEvents: 'none'
+                      }}
+                    >
                       {displayName}
                     </a>
                   )}
@@ -160,14 +186,16 @@ export default function Home() {
   useEffect(() => {
     const fetchExistingFaqSlugs = async () => {
       try {
+        console.log('[Home] Fetching existing FAQ slugs from /api/faq-slugs');
         const response = await fetch('/api/faq-slugs');
         if (!response.ok) {
           throw new Error('Failed to fetch FAQ slugs');
         }
         const data = await response.json();
+        console.log('[Home] Slugs fetched:', data.slugs);
         setExistingFaqSlugs(data.slugs);
       } catch (error) {
-        console.error('Error fetching FAQ slugs:', error);
+        console.error('[Home] Error fetching FAQ slugs:', error);
         setExistingFaqSlugs([]);
       }
     };
@@ -175,6 +203,7 @@ export default function Home() {
     fetchExistingFaqSlugs();
   }, []);
 
+  // Check the query string for a search term
   useEffect(() => {
     const query = router.query.q;
     if (query) {
@@ -183,10 +212,11 @@ export default function Home() {
     }
   }, [router.query.q]);
 
+  // Perform the actual search
   const performSearch = async (query) => {
     setSearching(true);
     try {
-      console.log("[Search] 🔍 Sending search request for:", query);
+      console.log('[Home] 🔍 Sending search request for:', query);
 
       const response = await fetch('/api/search', {
         method: 'POST',
@@ -199,10 +229,10 @@ export default function Home() {
       }
 
       const data = await response.json();
-      console.log('[Search Results] Full response data:', data);
+      console.log('[Home] [Search Results] Full response data:', data);
 
       data.forEach((faq, index) => {
-        console.log(`FAQ ${index + 1}:`, {
+        console.log(`[Home] FAQ ${index + 1}:`, {
           id: faq.id,
           human_readable_name: faq.human_readable_name,
           page_slug: faq.page_slug,
@@ -212,16 +242,17 @@ export default function Home() {
 
       setFaqs(data);
 
+      // Update URL with the search term, but don't do a full page reload
       router.push(
         {
           pathname: router.pathname,
-          query: { q: query },
+          query: { q: query }
         },
         undefined,
         { shallow: true }
       );
     } catch (error) {
-      console.error('[Search Error]:', error.message);
+      console.error('[Home] [Search Error]:', error.message);
       setError(error.message);
       setFaqs([]);
     } finally {
@@ -229,6 +260,7 @@ export default function Home() {
     }
   };
 
+  // Button click or pressing Enter triggers this
   const handleSearch = () => {
     if (searchQuery.trim().length < 3) {
       setError('Please enter at least 3 characters to search');
@@ -265,9 +297,9 @@ export default function Home() {
           <div className="results">
             <h2>Search Results ({faqs.length})</h2>
             {faqs.map((faq) => (
-              <FAQEntry 
-                key={faq.id} 
-                faq={faq} 
+              <FAQEntry
+                key={faq.id}
+                faq={faq}
                 existingFaqSlugs={existingFaqSlugs}
               />
             ))}
