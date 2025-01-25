@@ -1,4 +1,4 @@
-import { main } from "../scripts/fetchAndGenerate";
+import { main } from "../scripts/fetchAndGenerate"; 
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -10,6 +10,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey); // ✅ Initialize Supabase
 
+// ✅ Ensure we export a default function
 export default async function handler(req, res) {
   console.log("[fetch-and-generate] Received request:", req.method);
 

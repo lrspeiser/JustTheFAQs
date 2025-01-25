@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { pipeline } from "@xenova/transformers";
 import { createClient } from "@supabase/supabase-js";
+import { Pinecone } from '@pinecone-database/pinecone';
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -12,10 +13,15 @@ console.log("Environment Variables:");
 console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "Loaded" : "Missing");
 console.log("NEXT_PUBLIC_SUPABASE_URL:", process.env.NEXT_PUBLIC_SUPABASE_URL || "Not Set");
 console.log("NEXT_PUBLIC_SUPABASE_ANON_KEY:", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? "Loaded" : "Missing");
+const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
+const indexName = "faq-embeddings";
+const index = pc.index(indexName);
+const vectors = [];
+
 
 let globalSupabase = null; // Ensure single instance
-const BATCH_SIZE = 500;
-const MEDIA_PAGE_LIMIT = 500; // Change this value if you want to process more pages
+const BATCH_SIZE = 5;
+const MEDIA_PAGE_LIMIT = 5; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 let embedder = null;
 const RETRY_ATTEMPTS = 3;
@@ -182,7 +188,7 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page). Do not use links that say: (Redirected from <link>) because they don't have Wikipedia pages."
+                  description: "These are references to relevant pages on Wikipedia to the question and answer, but are not the page we are getting content from. They must be pages that exist on Wikipedia as full pages. Do not use links that say: (Redirected from <link>) because they don't have Wikipedia pages. Don't provide links that mention redirects. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page)."
                 },
                 media_links: {
                   type: "array",
@@ -221,7 +227,7 @@ const tools = [
                 cross_links: {
                   type: "array",
                   items: { type: "string", description: "Relevant cross-links from Wikipedia." },
-                  description: "This are references to different, relevant pages on Wikipedia to the question and answer and they must be pages that exist on Wikipedia. Cross-links for the FAQ derived from the section. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page). Do not use links that say: (Redirected from <link>) because they don't have Wikipedia pages.",
+                  description: "These are references to relevant pages on Wikipedia to the question and answer, but are not the page we are getting content from. They must be pages that exist on Wikipedia as full pages. Do not use links that say: (Redirected from <link>) because they don't have Wikipedia pages. Don't provide links that mention redirects. Don't include the portion before the slash / . For instance it should be Pro_Football_Hall_of_Fame not /wiki/Pro_Football_Hall_of_Fame. Do not include anchor links (Auckland_Zoo#Major_exhibits is not ok, especially if you are already on the Auckland_Zoo page).",
                 },
                 media_links: {
                   type: "array",
@@ -242,6 +248,98 @@ const tools = [
 
 
 
+async function generateAdditionalFAQsBatch(pages) {
+  console.log(`[generateAdditionalFAQsBatch] Starting batch processing of ${pages.length} pages`);
+
+  const processAdditionalFAQs = async (page) => {
+    const { title, content, existingFAQs, images, lastUpdated: rawTimestamp } = page;
+
+    try {
+      console.log(`[generateAdditionalFAQsBatch] Processing additional FAQs for "${title}"`);
+
+      const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
+
+      const usedImages = new Set(existingFAQs.flatMap(faq => faq.media_links || []));
+      const unusedImages = truncatedMediaLinks.filter(img => !usedImages.has(img));
+
+      const existingQuestions = existingFAQs.map(faq => 
+        `- ${faq.question}\n  Subheader: ${faq.subheader}\n  Used images: ${(faq.media_links || []).join(", ")}`
+      ).join('\n');
+
+      const contentWithImages = `
+        ${truncatedContent}
+        Available Unused Images:
+        ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
+      `;
+
+      console.log(`[generateAdditionalFAQsBatch] 🟡 Starting OpenAI chat completion for "${title}"...`);
+      const startTime = Date.now();
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are a brilliant writer tasked with extracting additional fascinating FAQs from Wikipedia content that weren't covered in the first pass. Start with the most interesting uncovered questions and work your way down. Focus on clarity, relevance, and engagement while avoiding jargon. Use all available information from Wikipedia, but prioritize what most people would find most interesting among the topics not yet covered. Ensure comprehensive answers and proper use of available images that haven't been used before."
+          },
+          {
+            role: "user",
+            content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high-quality standards. Focus on interesting aspects that weren't covered in the first pass.
+
+Title: ${title}
+
+Content:
+${contentWithImages}
+
+Existing Questions (to avoid duplication):
+${existingQuestions}
+
+Requirements:
+1. Generate entirely new questions that don't overlap with existing ones
+2. Focus on the most interesting uncovered aspects first
+3. Provide comprehensive, engaging answers
+4. Only use images that weren't used in the first pass
+5. Maintain the same high standards of clarity and relevance
+6. Group under appropriate subheaders
+7. Include relevant cross-links`
+          }
+        ],
+        tools,
+        tool_choice: { type: "function", function: { name: "generate_additional_faqs" } }
+      });
+
+      const duration = Date.now() - startTime;
+      console.log(`[generateAdditionalFAQsBatch] ✅ OpenAI chat completion completed in ${duration}ms`);
+
+      const toolCall = response.choices[0].message.tool_calls?.[0];
+      if (!toolCall) {
+        throw new Error(`No function call generated for ${title}`);
+      }
+
+      const args = JSON.parse(toolCall.function.arguments);
+      console.log(`[generateAdditionalFAQs] Received from OpenAI for "${title}":`);
+      console.log(JSON.stringify(args, null, 2));
+      console.log(`[generateAdditionalFAQsBatch] ✅ Successfully generated additional FAQs for ${title}`);
+
+      // 4) Count how many Q&As are returned—still referencing 'title'
+      if (!args.additional_faqs || !args.additional_faqs.length) {
+        console.log(`[generateAdditionalFAQs] No additional FAQs from OpenAI for "${title}".`);
+      } else {
+        console.log(`[generateAdditionalFAQs] ✅ Received ${args.additional_faqs.length} additional FAQ(s) for "${title}"`);
+      }
+
+      console.log(`[generateAdditionalFAQs] ✅ Successfully generated additional FAQs for ${title}`);
+
+
+      return args.additional_faqs;
+    } catch (error) {
+      return handleBatchProcessingError(error, title, 'generateAdditionalFAQsBatch');
+
+    }
+  };
+
+  return await processBatch(pages, processAdditionalFAQs);
+}
 
 
 // Fetch Wikipedia metadata
@@ -442,87 +540,8 @@ ${contentWithImages}`
   return processBatch(pages, processFAQ);
 }
 
-// Enhanced batch processing for additional FAQs
-async function generateAdditionalFAQsBatch(pages) {
-  console.log(`[generateAdditionalFAQsBatch] Starting batch processing of ${pages.length} pages`);
 
-  const processAdditionalFAQs = async (page) => {
-    const { title, content, existingFAQs, images, lastUpdated: rawTimestamp } = page;
 
-    try {
-      console.log(`[generateAdditionalFAQsBatch] Processing additional FAQs for "${title}"`);
-
-      const { truncatedContent, truncatedMediaLinks } = truncateContent(content, images);
-
-      const usedImages = new Set(existingFAQs.flatMap(faq => faq.media_links || []));
-      const unusedImages = truncatedMediaLinks.filter(img => !usedImages.has(img));
-
-      const existingQuestions = existingFAQs.map(faq => 
-        `- ${faq.question}\n  Subheader: ${faq.subheader}\n  Used images: ${(faq.media_links || []).join(", ")}`
-      ).join('\n');
-
-      const contentWithImages = `
-        ${truncatedContent}
-        Available Unused Images:
-        ${unusedImages.map((url, index) => `[Image ${index + 1}]: ${url}`).join("\n")}
-      `;
-
-      console.log(`[generateAdditionalFAQsBatch] 🟡 Starting OpenAI chat completion for "${title}"...`);
-      const startTime = Date.now();
-
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: "You are a brilliant writer tasked with extracting additional fascinating FAQs from Wikipedia content that weren't covered in the first pass. Start with the most interesting uncovered questions and work your way down. Focus on clarity, relevance, and engagement while avoiding jargon. Use all available information from Wikipedia, but prioritize what most people would find most interesting among the topics not yet covered. Ensure comprehensive answers and proper use of available images that haven't been used before."
-          },
-          {
-            role: "user",
-            content: `Generate additional structured FAQs from this Wikipedia content, avoiding overlap with existing questions while maintaining the same high-quality standards. Focus on interesting aspects that weren't covered in the first pass.
-
-Title: ${title}
-
-Content:
-${contentWithImages}
-
-Existing Questions (to avoid duplication):
-${existingQuestions}
-
-Requirements:
-1. Generate entirely new questions that don't overlap with existing ones
-2. Focus on the most interesting uncovered aspects first
-3. Provide comprehensive, engaging answers
-4. Only use images that weren't used in the first pass
-5. Maintain the same high standards of clarity and relevance
-6. Group under appropriate subheaders
-7. Include relevant cross-links`
-          }
-        ],
-        tools,
-        tool_choice: { type: "function", function: { name: "generate_additional_faqs" } }
-      });
-
-      const duration = Date.now() - startTime;
-      console.log(`[generateAdditionalFAQsBatch] ✅ OpenAI chat completion completed in ${duration}ms`);
-
-      const toolCall = response.choices[0].message.tool_calls?.[0];
-      if (!toolCall) {
-        throw new Error(`No function call generated for ${title}`);
-      }
-
-      const args = JSON.parse(toolCall.function.arguments);
-      console.log(`[generateAdditionalFAQsBatch] ✅ Successfully generated additional FAQs for ${title}`);
-
-      return args.additional_faqs;
-    } catch (error) {
-      return handleBatchProcessingError(error, title, 'generateAdditionalFAQsBatch');
-
-    }
-  };
-
-  return await processBatch(pages, processAdditionalFAQs);
-}
 
 // Updated processWithEnrichment to use batch processing
 async function processWithEnrichmentBatch(pages) {
@@ -572,6 +591,7 @@ async function processWithEnrichmentBatch(pages) {
           console.log(`[processWithEnrichmentBatch] ✅ Found additional FAQs for "${title}"`);
           await saveAdditionalFAQs(title, additionalFAQsResults[0], originalUrl, originalHumanReadableName, last_updated);
           console.log(`[processWithEnrichmentBatch] Second pass FAQs saved for "${title}"`);
+          
           completionStatus.set(title, { firstPass: true, secondPass: true });
         } else {
           console.log(`[processWithEnrichmentBatch] No additional FAQs for "${title}"`);
@@ -802,7 +822,7 @@ class ProcessingQueue {
   }
 }
 
-const truncateContent = (content, mediaLinks, maxTokens = 80000) => {
+const truncateContent = (content, mediaLinks, maxTokens = 100000) => {
   // Estimate tokens based on characters (rough estimate: 4 characters = 1 token)
   const charLimit = maxTokens * 4;
   const mediaLinksText = mediaLinks.join("\n");
@@ -991,6 +1011,38 @@ ${contentWithImages}`,
 };
 
 
+
+
+
+
+
+async function insertDataToSupabase(tableName, data) {
+  try {
+    // console.log(`[Supabase] Attempting to insert into ${tableName}:`, data);
+    const { data: insertedData, error } = await supabase
+      .from(tableName)
+      .insert([data])
+      .select('*')  // Add this to get the inserted data back
+      .single();    // Add this to get a single row
+
+    if (error) {
+      console.error(`[Supabase] Error inserting into ${tableName}:`, error.message);
+      throw error;
+    }
+
+    if (!insertedData) {
+      throw new Error(`No data returned from ${tableName} insert`);
+    }
+
+    // console.log(`[Supabase] Successfully inserted into ${tableName}:`, insertedData);
+    return insertedData;
+  } catch (error) {
+    console.error(`[Supabase] Unexpected error during insert into ${tableName}:`, error.message);
+    throw error;
+  }
+}
+
+// generateAdditionalFAQs with extra debug logs
 const generateAdditionalFAQs = async (title, content, existingFAQs, images) => {
   const retryAttempts = 3;
   let lastError = null;
@@ -1074,7 +1126,18 @@ Requirements:
         throw new Error(`No function call generated for ${title}`);
       }
 
+      // ---- DEBUG: Log the raw output from OpenAI
       const args = JSON.parse(toolCall.function.arguments);
+      console.log(`[generateAdditionalFAQs] Received from OpenAI for "${title}":`);
+      console.log(JSON.stringify(args, null, 2));
+
+      // Check how many new Q&A items
+      if (!args.additional_faqs || !args.additional_faqs.length) {
+        console.log(`[generateAdditionalFAQs] No additional FAQs from OpenAI for "${title}".`);
+      } else {
+        console.log(`[generateAdditionalFAQs] ✅ Received ${args.additional_faqs.length} additional FAQ(s) for "${title}"`);
+      }
+
       console.log(`[generateAdditionalFAQs] ✅ Successfully generated additional FAQs for ${title}`);
       return args.additional_faqs;
 
@@ -1094,47 +1157,18 @@ Requirements:
   return [];
 };
 
-
-
-
-
-
-
-
-
-
-
-async function insertDataToSupabase(tableName, data) {
-  try {
-    // console.log(`[Supabase] Attempting to insert into ${tableName}:`, data);
-    const { data: insertedData, error } = await supabase
-      .from(tableName)
-      .insert([data])
-      .select('*')  // Add this to get the inserted data back
-      .single();    // Add this to get a single row
-
-    if (error) {
-      console.error(`[Supabase] Error inserting into ${tableName}:`, error.message);
-      throw error;
-    }
-
-    if (!insertedData) {
-      throw new Error(`No data returned from ${tableName} insert`);
-    }
-
-    // console.log(`[Supabase] Successfully inserted into ${tableName}:`, insertedData);
-    return insertedData;
-  } catch (error) {
-    console.error(`[Supabase] Unexpected error during insert into ${tableName}:`, error.message);
-    throw error;
-  }
-}
-
+// saveAdditionalFAQs with added debug logs
 const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName, lastUpdated) => {
   if (!additionalFaqs || !additionalFaqs.length) {
     console.error("[saveAdditionalFAQs] No additional FAQs to save.");
     return;
   }
+
+  // Log how many second-pass FAQs we're about to insert
+  console.log(`[saveAdditionalFAQs] Saving ${additionalFaqs.length} additional FAQ(s) for "${title}"...`);
+  additionalFaqs.forEach((faq, i) => {
+    console.log(`[saveAdditionalFAQs] >> [${i + 1}] Additional Q: "${faq.question}"`);
+  });
 
   const slug = formatWikipediaSlug(title);
   console.log(`[saveAdditionalFAQs] Fetching FAQ file ID for "${slug}"`);
@@ -1151,7 +1185,9 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
     return;
   }
 
-  console.log(`[saveAdditionalFAQs] Found FAQ file ID: ${faqFile.id}`);
+  // ✅ Fix: Assign the ID properly before using it
+  const faqFileId = faqFile.id;
+  console.log(`[saveAdditionalFAQs] Found FAQ file ID: ${faqFileId}`);
 
   // Collect all cross-links before processing FAQs
   const allCrossLinks = additionalFaqs ? formatCrossLinks(additionalFaqs) : [];
@@ -1196,11 +1232,11 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
         console.log(`[saveAdditionalFAQs] Processing FAQ: "${faq.question}"`);
 
         const relatedPages = Array.isArray(faq.cross_links) 
-        ? faq.cross_links
-            .filter(Boolean)
-            .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
-            .join(", ") || null
-        : null;
+          ? faq.cross_links
+              .filter(Boolean)
+              .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
+              .join(", ") || null
+          : null;
 
         const embeddingText = `
           Page Title: ${title}
@@ -1216,7 +1252,7 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
         }
 
         const faqData = {
-          faq_file_id: faqFile.id,
+          faq_file_id: faqFileId,
           url: url || `https://en.wikipedia.org/wiki/${title}`,
           title: title,
           human_readable_name: humanReadableName,
@@ -1239,13 +1275,32 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
         console.log(`[saveAdditionalFAQs] Generating embedding for FAQ: "${faq.question}"`);
         const embedding = await generateEmbedding(embeddingText);
 
-        const embeddingData = {
-          faq_id: savedFaq.id,
-          question: faq.question,
-          embedding,
-        };
+        vectors.push({
+          id: savedFaq.id.toString(),
+          values: embedding,
+          metadata: {
+            faq_file_id: faqFileId.toString(),
+            question: faq.question || "Unknown Question",
+            answer: faq.answer || "No Answer Available",
+            url,
+            human_readable_name: humanReadableName || "Unknown",
+            last_updated: lastUpdated || new Date().toISOString(),
+            subheader: faq.subheader || "",
+            cross_link: relatedPages ? relatedPages.split(",").map(link => link.trim()) : [],
+            media_link: mediaLink || "",
+            image_urls: faq.media_links ? faq.media_links.map(url => url.trim()) : [] // ✅ Include image_urls
+          }
+        });
 
-        await insertDataToSupabase("faq_embeddings", embeddingData);
+        // Batch insert embeddings at the end
+        if (vectors.length > 0) {
+          console.log(`[saveStructuredFAQ] 🟡 Storing ${vectors.length} embeddings in Pinecone...`);
+          await index.upsert(vectors);
+          console.log(`[saveStructuredFAQ] ✅ Successfully stored ${vectors.length} FAQs in Pinecone.`);
+        } else {
+          console.log(`[saveStructuredFAQ] ⚠️ No new FAQs to store in Pinecone.`);
+        }
+
         console.log(`[saveAdditionalFAQs] ✅ Successfully saved FAQ and embedding for: "${faq.question}"`);
 
         // Introduce a short delay to prevent rate-limiting
@@ -1259,6 +1314,7 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
 
   console.log(`[saveAdditionalFAQs] ✅ Finished processing all additional FAQs for "${title}".`);
 };
+
 
 
 
@@ -1330,12 +1386,12 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
       try {
         console.log(`[saveStructuredFAQ] Processing FAQ: "${faq.question}"`);
 
-        const relatedPages = Array.isArray(faq.cross_links) 
-        ? faq.cross_links
-            .filter(Boolean)
-            .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
-            .join(", ") || null
-        : null;
+        const relatedPages = Array.isArray(faq.cross_links)
+          ? faq.cross_links
+              .filter(Boolean)
+              .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
+              .join(", ") || null
+          : null;
 
         // Extract actual URL if media_links contain an object
         let mediaUrl = faq.media_links?.[0] || null;
@@ -1361,7 +1417,7 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
           question: faq.question,
           answer: faq.answer,
           cross_link: relatedPages,
-          media_link: mediaUrl, // Fixed media URL
+          media_link: mediaUrl, // Use the same variable we defined above
         };
 
         console.log(`[saveStructuredFAQ] Saving FAQ: "${faq.question}"`);
@@ -1375,13 +1431,32 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
         console.log(`[saveStructuredFAQ] Generating embedding for FAQ: "${faq.question}"`);
         const embedding = await generateEmbedding(embeddingText);
 
-        const embeddingData = {
-          faq_id: savedFaq.id,
-          question: faq.question,
-          embedding,
-        };
+        vectors.push({
+          id: savedFaq.id.toString(),
+          values: embedding,
+          metadata: {
+            faq_file_id: faqFileId.toString(),
+            question: faq.question || "Unknown Question",
+            answer: faq.answer || "No Answer Available",
+            url,
+            human_readable_name: humanReadableName || "Unknown",
+            last_updated: lastUpdated || new Date().toISOString(),
+            subheader: faq.subheader || "",
+            cross_link: relatedPages ? relatedPages.split(",").map(link => link.trim()) : [],
+            media_link: mediaUrl || "",
+            image_urls: faq.media_links ? faq.media_links.map(url => url.trim()) : [] // ✅ Include image_urls
+          }
+        });
 
-        await insertDataToSupabase("faq_embeddings", embeddingData);
+        // Batch insert embeddings at the end
+        if (vectors.length > 0) {
+          console.log(`[saveAdditionalFAQs] 🟡 Storing ${vectors.length} embeddings in Pinecone...`);
+          await index.upsert(vectors);
+          console.log(`[saveAdditionalFAQs] ✅ Successfully stored ${vectors.length} FAQs in Pinecone.`);
+        } else {
+          console.log(`[saveAdditionalFAQs] ⚠️ No new FAQs to store in Pinecone.`);
+        }
+
         console.log(`[saveStructuredFAQ] ✅ Successfully saved FAQ and embedding for: "${faq.question}"`);
 
         // Introduce a small delay to prevent potential rate-limiting
@@ -1395,6 +1470,7 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
   console.log(`[saveStructuredFAQ] ✅ Finished processing all structured FAQs for "${title}".`);
 };
+
 
 
 const convertWikipediaPathToUrl = (path) => {
@@ -2092,7 +2168,7 @@ async function main() {
               })
             );
           }
-          
+
           // Add a small delay between batches to respect rate limits
           if (i + BATCH_SIZE < updatedPendingPages.length) {
             console.log("[main] Waiting before processing next batch...");
