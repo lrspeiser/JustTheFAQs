@@ -20,8 +20,8 @@ const vectors = [];
 
 
 let globalSupabase = null; // Ensure single instance
-const BATCH_SIZE = 5;
-const MEDIA_PAGE_LIMIT = 5; // Change this value if you want to process more pages
+const BATCH_SIZE = 1;
+const MEDIA_PAGE_LIMIT = 1; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 let embedder = null;
 const RETRY_ATTEMPTS = 3;
