@@ -20,8 +20,8 @@ const vectors = [];
 
 
 let globalSupabase = null; // Ensure single instance
-const BATCH_SIZE = 50;
-const MEDIA_PAGE_LIMIT = 5000; // Change this value if you want to process more pages
+const BATCH_SIZE = 5;
+const MEDIA_PAGE_LIMIT = 5; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 let embedder = null;
 const RETRY_ATTEMPTS = 3;
@@ -1986,6 +1986,21 @@ async function main() {
   console.log(`[main] Page limit set to: ${MEDIA_PAGE_LIMIT}`);
 
   try {
+    console.log("[main] Confirming we can do a simple Supabase test query...");
+
+    // Test reading from any table just to confirm the connection works:
+    const { data: testRead, error: testError } = await supabase
+      .from("raw_faqs")
+      .select("id")
+      .limit(1);
+
+    if (testError) {
+      console.error("[main] ❌ Test query to raw_faqs failed:", testError.message);
+    } else {
+      console.log("[main] ✅ Supabase test query successful. Example row:", testRead?.[0] ?? "(none)");
+    }
+
+    
     // Debug initial state
     console.log("[main] Checking initial database state...");
     await debugDatabaseOperation("initial-check", {});
