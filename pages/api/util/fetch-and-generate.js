@@ -2,10 +2,7 @@
 // /api/util/fetch-and-generate.js
 //
 import {
-  processOnePageFromDB,
-  processWithEnrichment,
-  fetchWikipediaMetadata,
-  fetchWikipediaPage,
+  processOnePageFromDB
 } from "../../../lib/processSinglePage"; 
 
 export default async function handler(req, res) {
