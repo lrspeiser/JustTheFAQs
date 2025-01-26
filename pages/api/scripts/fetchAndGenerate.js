@@ -20,7 +20,7 @@ const vectors = [];
 
 
 let globalSupabase = null; // Ensure single instance
-const BATCH_SIZE = 1000;
+const BATCH_SIZE = 50;
 const MEDIA_PAGE_LIMIT = 5000; // Change this value if you want to process more pages
 let processedCount = 0; // Track the number of successfully processed pages
 let embedder = null;
@@ -1234,7 +1234,7 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
         const relatedPages = Array.isArray(faq.cross_links) 
           ? faq.cross_links
               .filter(Boolean)
-              .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
+              .map(link => link.replace(/^\/wiki\//, ""))
               .join(", ") || null
           : null;
 
@@ -1275,7 +1275,8 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
         console.log(`[saveAdditionalFAQs] Generating embedding for FAQ: "${faq.question}"`);
         const embedding = await generateEmbedding(embeddingText);
 
-        vectors.push({
+        // Build a Pinecone vector
+        const vector = {
           id: savedFaq.id.toString(),
           values: embedding,
           metadata: {
@@ -1288,15 +1289,38 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
             subheader: faq.subheader || "",
             cross_link: relatedPages ? relatedPages.split(",").map(link => link.trim()) : [],
             media_link: mediaLink || "",
-            image_urls: faq.media_links ? faq.media_links.map(url => url.trim()) : [] // ✅ Include image_urls
+            image_urls: faq.media_links ? faq.media_links.map(url => url.trim()) : []
           }
-        });
+        };
 
-        // Batch insert embeddings at the end
+        // Upsert to Pinecone
+        vectors.push(vector);
         if (vectors.length > 0) {
           console.log(`[saveStructuredFAQ] 🟡 Storing ${vectors.length} embeddings in Pinecone...`);
-          await index.upsert(vectors);
-          console.log(`[saveStructuredFAQ] ✅ Successfully stored ${vectors.length} FAQs in Pinecone.`);
+          try {
+            await index.upsert(vectors);
+            console.log(`[saveStructuredFAQ] ✅ Successfully stored ${vectors.length} FAQs in Pinecone.`);
+
+            // Mark these ID(s) as pinecone_upsert_success=true after success
+            const justUpsertedIds = vectors.map(v => parseInt(v.id, 10));
+            const { error: updateError } = await supabase
+              .from("raw_faqs")
+              .update({ pinecone_upsert_success: true })
+              .in("id", justUpsertedIds);
+
+            if (updateError) {
+              console.error(
+                `[saveAdditionalFAQs] ❌ Error updating pinecone_upsert_success for IDs:`,
+                updateError.message
+              );
+            } else {
+              console.log(
+                `[saveAdditionalFAQs] ✅ Marked pinecone_upsert_success=true for ${justUpsertedIds.length} rows.`
+              );
+            }
+          } catch (upsertError) {
+            console.error(`[saveAdditionalFAQs] ❌ Pinecone upsert failed:`, upsertError.message);
+          }
         } else {
           console.log(`[saveStructuredFAQ] ⚠️ No new FAQs to store in Pinecone.`);
         }
@@ -1314,6 +1338,7 @@ const saveAdditionalFAQs = async (title, additionalFaqs, url, humanReadableName,
 
   console.log(`[saveAdditionalFAQs] ✅ Finished processing all additional FAQs for "${title}".`);
 };
+
 
 
 
@@ -1365,15 +1390,19 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
         // Add to queue if not exists
         await supabase
           .from("processing_queue")
-          .insert([{
-            title: crossLinkTitle,
-            slug: crossLinkSlug,
-            url: crossLinkUrl,
-            human_readable_name: crossLinkTitle,
-            status: 'pending',
-            source: 'cross_link'
-          }]);
-        console.log(`[saveStructuredFAQ] ✅ Added cross-link ${crossLinkTitle} to processing queue`);
+          .insert([
+            {
+              title: crossLinkTitle,
+              slug: crossLinkSlug,
+              url: crossLinkUrl,
+              human_readable_name: crossLinkTitle,
+              status: 'pending',
+              source: 'cross_link'
+            }
+          ]);
+        console.log(
+          `[saveStructuredFAQ] ✅ Added cross-link ${crossLinkTitle} to processing queue`
+        );
       }
     } catch (error) {
       console.error(`[saveStructuredFAQ] Error adding cross-link ${crossLinkTitle} to queue:`, error);
@@ -1389,7 +1418,7 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
         const relatedPages = Array.isArray(faq.cross_links)
           ? faq.cross_links
               .filter(Boolean)
-              .map(link => link.replace(/^\/wiki\//, "")) // ✅ Strip "/wiki/" from links
+              .map(link => link.replace(/^\/wiki\//, ""))
               .join(", ") || null
           : null;
 
@@ -1417,7 +1446,7 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
           question: faq.question,
           answer: faq.answer,
           cross_link: relatedPages,
-          media_link: mediaUrl, // Use the same variable we defined above
+          media_link: mediaUrl
         };
 
         console.log(`[saveStructuredFAQ] Saving FAQ: "${faq.question}"`);
@@ -1431,7 +1460,8 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
         console.log(`[saveStructuredFAQ] Generating embedding for FAQ: "${faq.question}"`);
         const embedding = await generateEmbedding(embeddingText);
 
-        vectors.push({
+        // Build the vector
+        const vector = {
           id: savedFaq.id.toString(),
           values: embedding,
           metadata: {
@@ -1444,24 +1474,48 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
             subheader: faq.subheader || "",
             cross_link: relatedPages ? relatedPages.split(",").map(link => link.trim()) : [],
             media_link: mediaUrl || "",
-            image_urls: faq.media_links ? faq.media_links.map(url => url.trim()) : [] // ✅ Include image_urls
+            image_urls: faq.media_links ? faq.media_links.map(url => url.trim()) : []
           }
-        });
+        };
 
-        // Batch insert embeddings at the end
+        vectors.push(vector);
+
+        // Upsert to Pinecone
         if (vectors.length > 0) {
           console.log(`[saveAdditionalFAQs] 🟡 Storing ${vectors.length} embeddings in Pinecone...`);
-          await index.upsert(vectors);
-          console.log(`[saveAdditionalFAQs] ✅ Successfully stored ${vectors.length} FAQs in Pinecone.`);
+          try {
+            await index.upsert(vectors);
+            console.log(`[saveAdditionalFAQs] ✅ Successfully stored ${vectors.length} FAQs in Pinecone.`);
+
+            // After success, mark them in Supabase
+            const justUpsertedIds = vectors.map(v => parseInt(v.id, 10));
+            const { error: updateError } = await supabase
+              .from("raw_faqs")
+              .update({ pinecone_upsert_success: true })
+              .in("id", justUpsertedIds);
+
+            if (updateError) {
+              console.error(
+                `[saveStructuredFAQ] ❌ Error updating pinecone_upsert_success for IDs:`,
+                updateError.message
+              );
+            } else {
+              console.log(
+                `[saveStructuredFAQ] ✅ Marked pinecone_upsert_success=true for ${justUpsertedIds.length} rows.`
+              );
+            }
+          } catch (upsertError) {
+            console.error(`[saveStructuredFAQ] ❌ Pinecone upsert failed:`, upsertError.message);
+            // We do NOT set the supabase flag if upsert fails
+          }
         } else {
-          console.log(`[saveAdditionalFAQs] ⚠️ No new FAQs to store in Pinecone.`);
+          console.log(`[saveStructuredFAQ] ⚠️ No new FAQs to store in Pinecone.`);
         }
 
         console.log(`[saveStructuredFAQ] ✅ Successfully saved FAQ and embedding for: "${faq.question}"`);
 
         // Introduce a small delay to prevent potential rate-limiting
         await new Promise((resolve) => setTimeout(resolve, 100));
-
       } catch (error) {
         console.error(`[saveStructuredFAQ] ❌ Error processing FAQ: "${faq.question}"`, error);
       }
@@ -1470,7 +1524,6 @@ const saveStructuredFAQ = async (title, url, humanReadableName, lastUpdated, faq
 
   console.log(`[saveStructuredFAQ] ✅ Finished processing all structured FAQs for "${title}".`);
 };
-
 
 
 const convertWikipediaPathToUrl = (path) => {

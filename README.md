@@ -33,14 +33,14 @@ JustTheFAQs is a Node.js-based application designed to generate structured FAQ p
 ## How It Works
 
 1. **Fetch Top Wikipedia Pages**  
-   - Uses the Wikimedia API to retrieve top-viewed Wikipedia articles.  
+   - Uses the Wikimedia API to retrieve top-viewed Wikipedia articles.
 
 2. **Check Existing Data**  
-   - Each Wikipedia article is checked against the PostgreSQL database (via Supabase) to avoid duplicate processing.  
+   - Each Wikipedia article is checked against the PostgreSQL database (via Supabase) to avoid duplicate processing.
 
 3. **Fetch and Process Content**  
    - Extracts HTML content and images from Wikipedia articles using the Cheerio library.  
-   - Truncates content to fit within OpenAI's token limit if necessary.  
+   - Truncates content to fit within OpenAI's token limit if necessary.
 
 4. **Generate FAQs**  
    - Sends article content and images to OpenAI's GPT-4 API to create FAQs.  
@@ -52,12 +52,12 @@ JustTheFAQs is a Node.js-based application designed to generate structured FAQ p
 
 5. **Store in Database + Pinecone**  
    - Saves all FAQ data (questions, answers, metadata) in a PostgreSQL database.  
-   - Generates embeddings for each FAQ and saves them to **Pinecone**, enabling semantic similarity search.  
+   - Generates embeddings for each FAQ and saves them to **Pinecone**, enabling semantic similarity search.
 
 6. **Dynamic Page Serving**  
    - Next.js frontend dynamically renders FAQ pages out of the PostgreSQL database.  
    - Real-time search & filtering is achieved by querying Pinecone for embeddings.  
-   - Cross-links between pages are maintained to allow deeper exploration.  
+   - Cross-links between pages are maintained to allow deeper exploration.
 
 ## Installation
 
@@ -143,20 +143,24 @@ Although embeddings are now stored in **Pinecone**, the application still uses P
 This table represents distinct FAQ groups. Each **slug** corresponds to the Wikipedia title, and `human_readable_name` is the more readable page name.
 
 ### `raw_faqs`
-| Column              | Data Type                   | Nullable | Default            | Constraint              |
-|---------------------|-----------------------------|----------|--------------------|-------------------------|
-| id                  | integer                     | NO       |                    | PRIMARY KEY            |
-| url                 | text                        | NO       |                    |                         |
-| title               | text                        | NO       |                    |                         |
-| timestamp           | timestamp without time zone | NO       | CURRENT_TIMESTAMP  |                         |
-| question            | text                        | NO       |                    |                         |
-| answer              | text                        | NO       |                    |                         |
-| media_link          | text                        | YES      |                    | For storing image/media |
-| human_readable_name | text                        | YES      |                    |                         |
-| last_updated        | timestamp without time zone | YES      |                    |                         |
-| subheader           | text                        | YES      |                    |                         |
-| cross_link          | text                        | YES      |                    | A comma-separated list of cross-links |
-| faq_file_id         | integer                     | YES      |                    | FOREIGN KEY (ref `faq_files.id`)      |
+Below is the updated schema reflecting all current columns:
+
+| Column              | Data Type                   | Nullable | Default            | Description / Notes                                   |
+|---------------------|-----------------------------|----------|--------------------|--------------------------------------------------------|
+| id                  | integer                     | NO       |                    | **Primary Key** for each FAQ                          |
+| url                 | text                        | NO       |                    | Full URL of the Wikipedia page                        |
+| title               | text                        | NO       |                    | Wikipedia page title                                  |
+| timestamp           | timestamp without time zone | NO       | CURRENT_TIMESTAMP  | Time of row creation                                  |
+| question            | text                        | NO       |                    | FAQ question                                          |
+| answer              | text                        | NO       |                    | FAQ answer                                            |
+| media_link          | text                        | YES      |                    | For storing a single image/media link                 |
+| human_readable_name | text                        | YES      |                    | Plain name for display                                |
+| last_updated        | timestamp without time zone | YES      |                    | Tracks updates                                        |
+| subheader           | text                        | YES      |                    | Indicates FAQ section header                          |
+| cross_link          | text                        | YES      |                    | Comma-separated list of cross-links (related pages)   |
+| image_urls          | text                        | YES      |                    | Typically for storing multiple image links (CSV)      |
+| faq_file_id         | integer                     | YES      |                    | **Foreign Key** referencing `faq_files(id)`           |
+| pinecone_upsert_success | boolean                | NO       | false              | Indicates whether the row was successfully upserted to Pinecone |
 
 > **Note**: Previously, the application stored embeddings in a `faq_embeddings` table. **That table is no longer used** because Pinecone now manages all vector data for semantic search.
 
