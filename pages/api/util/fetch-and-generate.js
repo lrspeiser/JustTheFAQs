@@ -1,4 +1,4 @@
-import { main } from "../../scripts/fetchAndGenerate";
+import { main } from "../scripts/fetchAndGenerate.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
