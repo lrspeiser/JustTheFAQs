@@ -35,7 +35,7 @@ export default function FetchAndGeneratePage() {
       return;
     }
 
-    let countToProcess = parseInt(processCount, 10);
+    const countToProcess = parseInt(processCount, 10);
     if (countToProcess <= 0) {
       setMessage("Please enter a number > 0.");
       return;
@@ -47,41 +47,56 @@ export default function FetchAndGeneratePage() {
     }
 
     setLoading(true);
-    setMessage(`Starting process of ${countToProcess} pages...`);
+    setMessage(`Starting parallel processing of ${countToProcess} pages...`);
 
-    // We'll go in order—call /api/util/fetch-and-generate for each page
-    for (let i = 0; i < countToProcess; i++) {
-      if (i >= pendingPages.length) {
-        setMessage(`Processed all ${i} pages (ran out of pages).`);
-        break;
-      }
-      const page = pendingPages[i];
+    // We'll slice the array in case the user asked for 10 but we only have 7
+    const pagesToProcess = pendingPages.slice(0, countToProcess);
 
-      try {
-        console.log(`[handleProcessPages] Processing page #${i + 1}:`, page.title);
+    try {
+      // Build an array of async tasks (each task is a fetch to /api/util/fetch-and-generate)
+      const tasks = pagesToProcess.map(async (page, i) => {
+        try {
+          console.log(`[handleProcessPages] Parallel: Processing #${i + 1}: ${page.title}`);
+          const res = await fetch("/api/util/fetch-and-generate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: page.id }),
+          });
 
-        // IMPORTANT: Send the *ID*, not just the title
-        const res = await fetch("/api/util/fetch-and-generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: page.id }),
-        });
+          if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.message || "Failed to process page");
+          }
+          const data = await res.json();
+          console.log(`[handleProcessPages] Response for page "${page.title}":`, data);
 
-        if (!res.ok) {
-          const errData = await res.json();
-          throw new Error(errData.message || "Failed to process page");
+          return {
+            title: page.title,
+            success: true
+          };
+        } catch (err) {
+          console.error(`[handleProcessPages] Error on page "${page.title}":`, err);
+          return {
+            title: page.title,
+            success: false,
+            error: err.message
+          };
         }
-        const data = await res.json();
-        console.log(`[handleProcessPages] Response for page "${page.title}":`, data);
-        setMessage(`Processed page "${page.title}" (${i + 1}/${countToProcess}).`);
-      } catch (err) {
-        console.error(`[handleProcessPages] Error on page "${page.title}":`, err);
-        setMessage(`Error processing page "${page.title}": ${err.message}`);
-        // Decide if you want to continue with the next page or stop
-      }
-    }
+      });
 
-    setLoading(false);
+      // Fire them *all* off in parallel, then wait for them all to finish
+      const results = await Promise.all(tasks);
+
+      // If you want to display how many succeeded or failed:
+      const successes = results.filter(r => r.success).length;
+      const failures = results.filter(r => !r.success).length;
+      setMessage(`Finished parallel processing. Successes: ${successes}, Failures: ${failures}`);
+    } catch (err) {
+      console.error("[handleProcessPages] Unexpected error in parallel processing:", err);
+      setMessage(`Unexpected error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
 
