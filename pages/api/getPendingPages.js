@@ -25,7 +25,7 @@ export default async function handler(req, res) {
       .from("processing_queue")
       .select("*")
       .eq("status", "pending")
-      .limit(50) // or however many you want to return
+      .limit(500) 
       .order("created_at", { ascending: true });
 
     if (error) {
