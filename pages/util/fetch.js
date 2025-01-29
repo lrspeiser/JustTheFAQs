@@ -4,7 +4,6 @@ export default function FetchAndGeneratePage() {
   const [pendingPages, setPendingPages] = useState([]);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-
   const [processCount, setProcessCount] = useState(""); // number of pages to process
 
   // Step 1: Get a list of pages that need to be processed
@@ -49,11 +48,11 @@ export default function FetchAndGeneratePage() {
     setLoading(true);
     setMessage(`Starting parallel processing of ${countToProcess} pages...`);
 
-    // We'll slice the array in case the user asked for 10 but we only have 7
+    // We'll slice the array in case the user asked for 10 but we only have e.g. 7
     const pagesToProcess = pendingPages.slice(0, countToProcess);
 
     try {
-      // Build an array of async tasks (each task is a fetch to /api/util/fetch-and-generate)
+      // Build an array of async tasks (each is a POST to /api/util/fetch-and-generate)
       const tasks = pagesToProcess.map(async (page, i) => {
         try {
           console.log(`[handleProcessPages] Parallel: Processing #${i + 1}: ${page.title}`);
@@ -70,24 +69,29 @@ export default function FetchAndGeneratePage() {
           const data = await res.json();
           console.log(`[handleProcessPages] Response for page "${page.title}":`, data);
 
-          return {
-            title: page.title,
-            success: true
-          };
+          // PARTIAL UPDATE: remove the page from `pendingPages` or mark it as done
+          setPendingPages(prev => prev.filter(p => p.id !== page.id));
+
+          // PARTIAL UPDATE: show partial progress
+          setMessage(
+            `Finished page "${page.title}". Pages left: ${pendingPages.length - 1}`
+          );
+
+          return { title: page.title, success: true };
         } catch (err) {
           console.error(`[handleProcessPages] Error on page "${page.title}":`, err);
-          return {
-            title: page.title,
-            success: false,
-            error: err.message
-          };
+
+          // PARTIAL UPDATE: show partial error
+          setMessage(`Error processing "${page.title}": ${err.message}`);
+
+          return { title: page.title, success: false, error: err.message };
         }
       });
 
-      // Fire them *all* off in parallel, then wait for them all to finish
+      // Wait for all parallel tasks to complete
       const results = await Promise.all(tasks);
 
-      // If you want to display how many succeeded or failed:
+      // Summarize final successes/failures
       const successes = results.filter(r => r.success).length;
       const failures = results.filter(r => !r.success).length;
       setMessage(`Finished parallel processing. Successes: ${successes}, Failures: ${failures}`);
@@ -98,7 +102,6 @@ export default function FetchAndGeneratePage() {
       setLoading(false);
     }
   };
-
 
   return (
     <div style={{ margin: "2rem" }}>
