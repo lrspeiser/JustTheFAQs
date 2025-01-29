@@ -1,5 +1,6 @@
+//
 // migratepinecone.js
-
+//
 import { Pinecone } from "@pinecone-database/pinecone";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
@@ -19,12 +20,12 @@ const index = pc.index("faq-embeddings"); // Adjust if your index name is differ
 // 2. CLI argument for batch size
 const args = process.argv.slice(2);
 const limitArg = args.find(arg => arg.startsWith("--limit="));
-const BATCH_SIZE = limitArg ? parseInt(limitArg.split("=")[1], 10) : 20000; // Default to 20k
+const BATCH_SIZE = limitArg ? parseInt(limitArg.split("=")[1], 10) : 20000; // Default 20k
 
 // 3. CHUNK_SIZE to avoid fetching too many rows at once
 const CHUNK_SIZE = 1000;
 
-console.log(`[Migration] 🚀 Starting Pinecone migration for up to ${BATCH_SIZE} entries (only those with pinecone_upsert_success=false).`);
+console.log(`[Migration] 🚀 Starting Pinecone sync for up to ${BATCH_SIZE} total raw_faqs.`);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helper: Generate an embedding
@@ -43,6 +44,24 @@ async function generateEmbedding(text) {
   }
 }
 
+// Helper: Check if Pinecone has an entry with this ID
+async function pineconeHasEntry(id) {
+  try {
+    const fetchResult = await index.fetch([id]);
+    // Add debug logging
+    const fetchedCount = fetchResult?.vectors 
+      ? Object.keys(fetchResult.vectors).length 
+      : 0;
+
+    console.log(`[Pinecone] fetchResult for ID=${id}: fetched ${fetchedCount} vector(s).`);
+    // If fetchResult.vectors[id] is not present, it's missing
+    return !!(fetchResult?.vectors && fetchResult.vectors[id]);
+  } catch (err) {
+    console.error(`[Pinecone] ❌ Error checking ID=${id}:`, err.message);
+    return false; // treat error as "missing" if error
+  }
+}
+
 // Helper: Upsert a single FAQ into Pinecone
 async function upsertSingleFAQ(faq) {
   // Build text for embedding
@@ -58,7 +77,7 @@ async function upsertSingleFAQ(faq) {
   const embedding = await generateEmbedding(textToEmbed);
   if (!embedding) {
     console.log(`[Pinecone] ⚠️ ID ${faq.id} - embedding generation failed.`);
-    return false; // Return false => no upsert
+    return false;
   }
 
   // Build vector
@@ -99,17 +118,18 @@ async function upsertSingleFAQ(faq) {
 ////////////////////////////////////////////////////////////////////////////////
 // The main migration function
 export async function migrateFAQs() {
-  console.log("[Migration] 🔎 Searching for raw_faqs where pinecone_upsert_success=false...");
+  console.log(`[Migration] 🔎 We'll scan raw_faqs up to ${BATCH_SIZE} rows, upserting if missing in Pinecone.`);
 
-  let storedCount = 0;
+  let processedCount = 0;
   let failCount = 0;
   const failedIds = [];
+  let offset = 0;
 
-  while (storedCount < BATCH_SIZE) {
-    // Step A: fetch up to CHUNK_SIZE rows that are still "false"
-    const toFetch = Math.min(BATCH_SIZE - storedCount, CHUNK_SIZE);
+  while (processedCount < BATCH_SIZE) {
+    // Step A: fetch up to CHUNK_SIZE rows from raw_faqs
+    const toFetch = Math.min(BATCH_SIZE - processedCount, CHUNK_SIZE);
 
-    console.log(`[Supabase] 🗄 Fetching up to ${toFetch} rows with pinecone_upsert_success=false...`);
+    console.log(`[Supabase] 🗄 Fetching up to ${toFetch} rows from offset=${offset}...`);
     const { data: faqs, error } = await supabase
       .from("raw_faqs")
       .select(`
@@ -129,9 +149,8 @@ export async function migrateFAQs() {
           slug
         )
       `)
-      .eq("pinecone_upsert_success", false)
-      .order("id", { ascending: false })  // Just pick a sorting approach
-      .limit(toFetch);
+      .order("id", { ascending: false })
+      .range(offset, offset + toFetch - 1);
 
     if (error) {
       console.error("[Migration] ❌ Error fetching from Supabase:", error.message);
@@ -139,69 +158,61 @@ export async function migrateFAQs() {
     }
 
     if (!faqs || faqs.length === 0) {
-      console.log("[Migration] 🛑 No more rows with pinecone_upsert_success=false. Stopping.");
+      console.log("[Migration] 🛑 No more rows found in raw_faqs. Stopping.");
       break;
     }
 
-    console.log(`[Migration] Found ${faqs.length} rows needing upsert in Pinecone...`);
+    console.log(`[Migration] Received ${faqs.length} rows...`);
+    offset += faqs.length;
 
-    // Step B: Upsert each one in parallel
-    // or you could do them sequentially if you worry about rate limits
-    const results = await Promise.all(
-      faqs.map((faq) => upsertSingleFAQ(faq))
-    );
-
-    // Step C: Mark successes => pinecone_upsert_success=true, failures => keep false
-    const successIds = [];
-    const failIds = [];
-    for (let i = 0; i < results.length; i++) {
-      if (results[i]) successIds.push(faqs[i].id);
-      else failIds.push(faqs[i].id);
-    }
-
-    // If we have successes, update them in Supabase
-    if (successIds.length > 0) {
-      const { error: updateError } = await supabase
-        .from("raw_faqs")
-        .update({ pinecone_upsert_success: true })
-        .in("id", successIds);
-
-      if (updateError) {
-        console.error("[Migration] ❌ Error marking success in Supabase:", updateError.message);
-      } else {
-        console.log(`[Migration] ✅ Marked ${successIds.length} rows as pinecone_upsert_success=true.`);
+    // Step B: For each row, check Pinecone presence => upsert if missing => mark success
+    for (const faq of faqs) {
+      // If we've processed the batch limit, break
+      if (processedCount >= BATCH_SIZE) {
+        break;
       }
 
-      storedCount += successIds.length;
+      const idStr = faq.id.toString();
+      // Debug: Check Pinecone
+      const alreadyInPinecone = await pineconeHasEntry(idStr);
+      if (alreadyInPinecone) {
+        console.log(`[Migration] Skipping ID ${faq.id}, already in Pinecone.`);
+      } else {
+        // Upsert
+        const success = await upsertSingleFAQ(faq);
+        if (success) {
+          // Mark pinecone_upsert_success = true
+          const { error: updateError } = await supabase
+            .from("raw_faqs")
+            .update({ pinecone_upsert_success: true })
+            .eq("id", faq.id);
+          if (updateError) {
+            console.error(`[Migration] ❌ Error marking ID=${faq.id} success:`, updateError.message);
+          } else {
+            console.log(`[Migration] ✅ Marked ID=${faq.id} pinecone_upsert_success=true.`);
+          }
+        } else {
+          failCount++;
+          failedIds.push(faq.id);
+        }
+      }
+
+      processedCount++;
     }
 
-    // If we have failures, we just keep them as false. We log them out
-    if (failIds.length > 0) {
-      failCount += failIds.length;
-      failedIds.push(...failIds);
-      console.log(`[Migration] 🚫 The following ${failIds.length} IDs failed to upsert:`, failIds);
-    }
-
-    // If we've stored the maximum BATCH_SIZE, break
-    if (storedCount >= BATCH_SIZE) {
-      console.log(`[Migration] Reached BATCH_SIZE limit of ${BATCH_SIZE}, stopping.`);
-      break;
-    }
-
-    // If we fetched less than CHUNK_SIZE, likely no more remain
-    if (faqs.length < CHUNK_SIZE) {
+    // If we fetched less than toFetch, likely no more remain
+    if (faqs.length < toFetch) {
       console.log("[Migration] ❗ Fetched fewer than chunk size, probably done.");
       break;
     }
   }
 
-  console.log(`[Migration] ✅ Finished migration. Upserted ${storedCount} rows successfully.`);
+  console.log(`[Migration] ✅ Done scanning. Processed ${processedCount} total raw_faqs entries.`);
 
   if (failCount > 0) {
-    console.log(`[Migration] ❌ Failed upserting ${failCount} rows. Keeping them as false.`);
-    console.log("Failed IDs:", failedIds);
+    console.log(`[Migration] ❌ ${failCount} upserts failed.`, failedIds);
   } else {
-    console.log("[Migration] 🎉 No failures. Great success!");
+    console.log("[Migration] 🎉 No upsert failures. Great success!");
   }
 }
 

@@ -1,5 +1,4 @@
 // pages/api/getPendingPages.js
-
 import { initClients } from "../../lib/fetchAndGenerate";
 
 export default async function handler(req, res) {
@@ -9,7 +8,6 @@ export default async function handler(req, res) {
 
   try {
     console.log("[getPendingPages] Initializing Supabase client...");
-    // Re-use your existing function that sets up supabase + openai
     const { supabase } = initClients();
 
     if (!supabase) {
@@ -18,28 +16,43 @@ export default async function handler(req, res) {
     }
 
     console.log("[getPendingPages] Fetching unprocessed pages from 'processing_queue'...");
+    const targetLimit = parseInt(req.query.limit || "20000", 10);
+    const batchSize = 1000; // Fetch in batches of 1000
+    let allData = [];
 
-    // For example, let's say we only want pages with status='pending'
-    // If you also want to include 'failed', just adjust the query.
-    const { data, error } = await supabase
-      .from("processing_queue")
-      .select("*")
-      .eq("status", "pending")
-      .limit(5000) 
-      .order("created_at", { ascending: true });
+    // Fetch data in batches
+    for (let offset = 0; offset < targetLimit; offset += batchSize) {
+      const { data, error } = await supabase
+        .from("processing_queue")
+        .select("*")
+        .eq("status", "pending")
+        .range(offset, Math.min(offset + batchSize - 1, targetLimit - 1))
+        .order("created_at", { ascending: true });
 
-    if (error) {
-      console.error("[getPendingPages] ❌ Error fetching queue:", error.message);
-      return res.status(500).json({ message: "Failed to fetch pending pages", error: error.message });
+      if (error) {
+        console.error("[getPendingPages] ❌ Error fetching queue:", error.message);
+        return res
+          .status(500)
+          .json({ message: "Failed to fetch pending pages", error: error.message });
+      }
+
+      allData = [...allData, ...data];
+
+      // If we got less than batchSize results, we've reached the end
+      if (data.length < batchSize) break;
+
+      // If we've reached our target limit, stop
+      if (allData.length >= targetLimit) {
+        allData = allData.slice(0, targetLimit);
+        break;
+      }
     }
 
-    // data now contains the list of pages that haven't been processed
-    console.log(`[getPendingPages] Found ${data.length} pages pending processing.`);
+    console.log(`[getPendingPages] Found ${allData.length} pages pending processing.`);
     return res.status(200).json({
       success: true,
-      pendingPages: data,
+      pendingPages: allData,
     });
-
   } catch (error) {
     console.error("[getPendingPages] ❌ Unexpected error:", error);
     return res.status(500).json({ message: "Server error", error: error.message });

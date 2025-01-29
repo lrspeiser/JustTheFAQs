@@ -1,162 +1,124 @@
-// fixbrokenslugs.js
-
-import { Pinecone } from "@pinecone-database/pinecone";
-import OpenAI from "openai";
-import { createClient } from "@supabase/supabase-js";
+//
+// fixBlankSlugsInPinecone.js
+//
 import dotenv from "dotenv";
-
-// Load environment variables
 dotenv.config();
 
-// 1. Initialize Clients
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { Pinecone } from "@pinecone-database/pinecone";
+import { createClient } from "@supabase/supabase-js";
+
+/**
+ * Initialize Supabase and Pinecone
+ */
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
+
 const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY });
-const indexName = "faq-embeddings";
-const index = pc.index(indexName);
+const index = pc.index("faq-embeddings"); // Adjust if needed
 
-// 2. Handle CLI argument for batch size, or default to 1000
-const args = process.argv.slice(2);
-const limitArg = args.find(arg => arg.startsWith("--limit="));
-const BATCH_SIZE = limitArg ? parseInt(limitArg.split("=")[1], 10) : 1000;
+/**
+ * Query Pinecone for items where slug = "".
+ * We use a dummy vector + filter. This fetches up to 100k matches
+ * if you have a large index. Adjust topK if you might exceed that.
+ */
+async function findBlankSlugInPinecone() {
+  console.log("[Pinecone] Searching for items with slug=''...");
 
-console.log(`[Migration] 🚀 Starting re-upsert with batch size: ${BATCH_SIZE}`);
+  // Dummy vector of correct dimension for your index
+  const zeroVector = new Array(1536).fill(0);
 
-// ---------------------------------------
-// 3. HELPER: Generate an embedding with OpenAI
-async function generateEmbedding(text) {
-  try {
-    console.log(`[Embedding] 🧠 Generating embedding for: "${text.substring(0, 50)}..."`);
-    const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: text.replace(/\n/g, " "),
-      dimensions: 1536
-    });
-    return response.data[0].embedding;
-  } catch (error) {
-    console.error("[Embedding] ❌ Error generating embedding:", error.message);
-    return null;
-  }
-}
+  const response = await index.query({
+    vector: zeroVector,
+    topK: 9999,         // large enough to catch all
+    includeMetadata: true,
+    filter: {
+      slug: {
+        $eq: ""
+      }
+    }
+  });
 
-// ---------------------------------------
-// 4. HELPER: Fetch FAQs from Supabase in batches (with slug)
-async function fetchFAQs(limit, offset = 0) {
-  console.log(`[Supabase] 🗄 Fetching up to ${limit} raw FAQs (offset: ${offset})...`);
-
-  const { data: faqs, error } = await supabase
-    .from("raw_faqs")
-    .select(`
-      id,
-      faq_file_id,
-      url,
-      title,
-      question,
-      answer,
-      media_link,
-      human_readable_name,
-      last_updated,
-      subheader,
-      cross_link,
-      image_urls,
-      faq_files (
-        slug
-      )
-    `)
-    .order("last_updated", { ascending: true })
-    .range(offset, offset + limit - 1);
-
-  if (error) {
-    console.error("[Supabase] ❌ Error fetching FAQs:", error.message);
+  if (!response.matches || response.matches.length === 0) {
+    console.log("[Pinecone] No matches found with slug=''.");
     return [];
   }
 
-  return faqs;
+  console.log(`[Pinecone] Found ${response.matches.length} matches with slug=""`);
+  return response.matches;
 }
 
-// ---------------------------------------
-// 5. HELPER: Re-upsert all fetched FAQs to Pinecone (no skipping)
-async function upsertFaqsToPinecone(faqs) {
-  console.log(`[Pinecone] 🚀 Re-upserting ${faqs.length} FAQs...`);
-  const vectors = [];
+/**
+ * Fetch the correct slug from Supabase for the given raw_faqs.id
+ */
+async function fetchCorrectSlugFromDB(id) {
+  // Query the raw_faqs table, joined to faq_files to get the real slug
+  const { data, error } = await supabase
+    .from("raw_faqs")
+    .select("faq_files ( slug )")
+    .eq("id", id)
+    .maybeSingle();
 
-  for (const faq of faqs) {
-    const textToEmbed = `
-      Title: ${faq.title}
-      Question: ${faq.question}
-      Answer: ${faq.answer}
-      Subheader: ${faq.subheader || ""}
-      Related: ${faq.cross_link || ""}
-    `.trim();
+  if (error) {
+    console.error(`[Supabase] Error fetching ID=${id}:`, error.message);
+    return null;
+  }
+  if (!data || !data.faq_files) {
+    return null;
+  }
 
-    const embedding = await generateEmbedding(textToEmbed);
-    if (!embedding) continue; // Skip if embedding fails
+  // If the DB slug is also empty, there's nothing to fix
+  const dbSlug = data.faq_files.slug || "";
+  return dbSlug.length ? dbSlug : null;
+}
 
-    const finalSlug = faq.faq_files?.slug || "";
-
-    vectors.push({
-      id: faq.id.toString(),
-      values: embedding,
-      metadata: {
-        faq_file_id: faq.faq_file_id?.toString() || "unknown",
-        question: faq.question || "Unknown Question",
-        answer: faq.answer || "No Answer Available",
-        url: faq.url || "",
-        human_readable_name: faq.human_readable_name || "Unknown",
-        last_updated: faq.last_updated || new Date().toISOString(),
-        subheader: faq.subheader || "",
-        cross_link: faq.cross_link
-          ? faq.cross_link.split(",").map(link => link.trim())
-          : [],
-        media_link: faq.media_link || "",
-        image_urls: faq.image_urls
-          ? faq.image_urls.split(",").map(url => url.trim())
-          : [],
-        slug: finalSlug
-      }
+/**
+ * Use Pinecone partial update to fix the slug field, leaving the vector intact
+ */
+async function updateSlugOnlyInPinecone(id, newSlug) {
+  try {
+    await index.update({
+      id: id.toString(),
+      setMetadata: { slug: newSlug }
     });
-  }
-
-  if (vectors.length > 0) {
-    await index.upsert(vectors);
-    console.log(`[Pinecone] ✅ Re-upserted ${vectors.length} items.`);
-  } else {
-    console.log("[Pinecone] ⚠️ No vectors to re-upsert this round.");
+    console.log(`[Pinecone] ✅ ID=${id}, updated slug to "${newSlug}"`);
+  } catch (err) {
+    console.error(`[Pinecone] Error updating ID=${id}:`, err.message);
   }
 }
 
-// ---------------------------------------
-// 6. MAIN: forcibly re-upsert all rows in raw_faqs
-async function fixBrokenSlugs() {
-  let storedCount = 0;
-  let offset = 0;
-
-  while (true) {
-    // 1) Fetch batch
-    const faqs = await fetchFAQs(BATCH_SIZE, offset);
-    if (faqs.length === 0) {
-      console.log("[Migration] 🛑 No more FAQs to process. Stopping.");
-      break;
+/**
+ * Main function: find all blank-slug items, fix each by setting the DB slug
+ */
+async function fixBlankSlugsInPinecone() {
+  try {
+    // 1) Query Pinecone for blank-slug items
+    const matches = await findBlankSlugInPinecone();
+    if (!matches.length) {
+      console.log("[Main] No blank slugs found. Done.");
+      return;
     }
 
-    // 2) Upsert them all into Pinecone (NOT skipping existing)
-    console.log(`[Migration] 🔍 Re-upserting batch of ${faqs.length}...`);
-    await upsertFaqsToPinecone(faqs);
+    // 2) For each match, fetch DB slug, do partial metadata update
+    let updatedCount = 0;
+    for (const match of matches) {
+      const id = match.id;
+      const realSlug = await fetchCorrectSlugFromDB(id);
 
-    storedCount += faqs.length;
-    console.log(`[Migration] 🎉 Re-upserted ${storedCount} total so far.`);
+      if (realSlug) {
+        await updateSlugOnlyInPinecone(id, realSlug);
+        updatedCount++;
+      } else {
+        // DB has no slug or row not found, skip
+      }
+    }
 
-    // 3) Move offset forward for the next batch
-    offset += BATCH_SIZE;
+    console.log(`[Main] Completed. Updated slug for ${updatedCount} item(s).`);
+  } catch (err) {
+    console.error("[Main] ❌ Unexpected error:", err.message);
   }
-
-  console.log(`[Migration] ✅ Finished forced re-upsert. Re-upserted ${storedCount} total FAQs.`);
 }
 
-// 7. Run the script
-fixBrokenSlugs().catch((err) => {
-  console.error("[Migration] ❌ Unexpected error:", err.message);
-});
+// Run
+fixBlankSlugsInPinecone();
