@@ -6,6 +6,10 @@ export default function FetchAndGeneratePage() {
   const [loading, setLoading] = useState(false);
   const [processCount, setProcessCount] = useState(""); // number of pages to process
 
+  // NEW: Keep track of partial successes/failures in real-time
+  const [successCount, setSuccessCount] = useState(0);
+  const [failureCount, setFailureCount] = useState(0);
+
   // Step 1: Get a list of pages that need to be processed
   const handleGetPendingPages = async () => {
     setLoading(true);
@@ -45,58 +49,94 @@ export default function FetchAndGeneratePage() {
       return;
     }
 
+    // Reset counters
+    setSuccessCount(0);
+    setFailureCount(0);
+
     setLoading(true);
-    setMessage(`Starting parallel processing of ${countToProcess} pages...`);
+    setMessage(`Starting throttled processing of ${countToProcess} pages...`);
 
     // We'll slice the array in case the user asked for 10 but we only have e.g. 7
     const pagesToProcess = pendingPages.slice(0, countToProcess);
 
-    try {
-      // Build an array of async tasks (each is a POST to /api/util/fetch-and-generate)
-      const tasks = pagesToProcess.map(async (page, i) => {
-        try {
-          console.log(`[handleProcessPages] Parallel: Processing #${i + 1}: ${page.title}`);
-          const res = await fetch("/api/util/fetch-and-generate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id: page.id }),
-          });
+    // Control how many pages process in parallel:
+    const CONCURRENCY = 40;       // up to N at a time
+    const BATCH_DELAY_MS = 200;   // 200ms pause between each batch
 
-          if (!res.ok) {
-            const errData = await res.json();
-            throw new Error(errData.message || "Failed to process page");
-          }
-          const data = await res.json();
-          console.log(`[handleProcessPages] Response for page "${page.title}":`, data);
+    // We'll store results for each page so we can summarize at the end
+    let results = [];
 
-          // PARTIAL UPDATE: remove the page from `pendingPages` or mark it as done
-          setPendingPages(prev => prev.filter(p => p.id !== page.id));
-
-          // PARTIAL UPDATE: show partial progress
-          setMessage(
-            `Finished page "${page.title}". Pages left: ${pendingPages.length - 1}`
-          );
-
-          return { title: page.title, success: true };
-        } catch (err) {
-          console.error(`[handleProcessPages] Error on page "${page.title}":`, err);
-
-          // PARTIAL UPDATE: show partial error
-          setMessage(`Error processing "${page.title}": ${err.message}`);
-
-          return { title: page.title, success: false, error: err.message };
+    const processSinglePage = async (page, index) => {
+      try {
+        console.log(`[handleProcessPages] Throttled: Processing #${index + 1}: ${page.title}`);
+        const res = await fetch("/api/util/fetch-and-generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: page.id }),
+        });
+        if (!res.ok) {
+          const errData = await res.json();
+          throw new Error(errData.message || "Failed to process page");
         }
-      });
+        const data = await res.json();
+        console.log(`[handleProcessPages] Response for page "${page.title}":`, data);
 
-      // Wait for all parallel tasks to complete
-      const results = await Promise.all(tasks);
+        // PARTIAL UPDATE: remove the page from `pendingPages`
+        setPendingPages(prev => prev.filter(p => p.id !== page.id));
+
+        // Increment success count
+        setSuccessCount(prev => prev + 1);
+
+        // Show partial progress:
+        // successCount is updated asynchronously, so we'll read them from the state after increment
+        // but for immediate UI, a quick trick is to use a callback:
+        setSuccessCount(prevSuccessCount => {
+          const newSuccessCount = prevSuccessCount;
+          const leftInQueue = pendingPages.length - 1; 
+          setMessage(
+            `Finished "${page.title}". Successes: ${newSuccessCount}, Failures: ${failureCount}`
+          );
+          return newSuccessCount;
+        });
+
+        return { title: page.title, success: true };
+      } catch (err) {
+        console.error(`[handleProcessPages] Error on page "${page.title}":`, err);
+
+        // Increment failure count
+        setFailureCount(prev => prev + 1);
+
+        setMessage(`Error processing "${page.title}": ${err.message}`);
+        return { title: page.title, success: false, error: err.message };
+      }
+    };
+
+    try {
+      // Iterate in chunks of size CONCURRENCY
+      for (let i = 0; i < pagesToProcess.length; i += CONCURRENCY) {
+        const batch = pagesToProcess.slice(i, i + CONCURRENCY);
+
+        // Process them in parallel
+        const batchResults = await Promise.all(
+          batch.map((page, indexInBatch) => processSinglePage(page, i + indexInBatch))
+        );
+
+        results = [...results, ...batchResults];
+
+        // If we're not at the last batch, wait a short delay
+        if (i + CONCURRENCY < pagesToProcess.length) {
+          console.log(`[handleProcessPages] Waiting ${BATCH_DELAY_MS}ms before next batch...`);
+          setMessage(`Waiting ${BATCH_DELAY_MS / 1000}s before next batch...`);
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+        }
+      }
 
       // Summarize final successes/failures
       const successes = results.filter(r => r.success).length;
       const failures = results.filter(r => !r.success).length;
-      setMessage(`Finished parallel processing. Successes: ${successes}, Failures: ${failures}`);
+      setMessage(`Finished throttled processing. Successes: ${successes}, Failures: ${failures}`);
     } catch (err) {
-      console.error("[handleProcessPages] Unexpected error in parallel processing:", err);
+      console.error("[handleProcessPages] Unexpected error in throttled processing:", err);
       setMessage(`Unexpected error: ${err.message}`);
     } finally {
       setLoading(false);
@@ -132,10 +172,10 @@ export default function FetchAndGeneratePage() {
       {/* Status message */}
       {message && <p>{message}</p>}
 
-      {/* Render pending pages */}
+      {/* Render pending pages + partial counters */}
       {pendingPages.length > 0 && (
         <div style={{ marginTop: "1rem" }}>
-          <h3>Pending Pages:</h3>
+          <h3>Pending Pages (In Queue): {pendingPages.length}</h3>
           <ul>
             {pendingPages.map((page, idx) => (
               <li key={page.id || idx}>
@@ -145,6 +185,12 @@ export default function FetchAndGeneratePage() {
           </ul>
         </div>
       )}
+
+      {/* Show partial success/failure counters */}
+      <div style={{ marginTop: "1rem" }}>
+        <strong>Successes:</strong> {successCount} <br />
+        <strong>Failures:</strong> {failureCount}
+      </div>
     </div>
   );
 }
