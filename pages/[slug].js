@@ -176,6 +176,26 @@ export default function FAQPage() {
                         </article>
                     ))}
                 </div>
+                <footer
+                    style={{
+                      marginTop: '2rem',
+                      padding: '1rem',
+                      background: '#f0f0f0',
+                      textAlign: 'center'
+                    }}
+                  >
+                    <p>
+                      Read more about Just The FAQs on{' '}
+                      <a
+                        href="https://github.com/lrspeiser/JustTheFAQs"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: 'blue', textDecoration: 'underline' }}
+                      >
+                        GitHub
+                      </a>
+                    </p>
+                  </footer>
             </main>
         </>
     );

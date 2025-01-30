@@ -280,8 +280,25 @@ export default function Home() {
         <title>Just the FAQs!</title>
       </Head>
       <main className="container">
-        <div className="header">
+        <div
+          className="header"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'  // This pushes them to opposite ends
+          }}
+        >
           <h1>Just the FAQs!</h1>
+          <Link
+            href="/util/all-pages"
+            style={{
+              color: 'blue',
+              textDecoration: 'underline',
+              fontSize: '1rem'
+            }}
+          >
+            View All Pages
+          </Link>
         </div>
 
         <div className="search-box">
@@ -297,7 +314,7 @@ export default function Home() {
           </button>
         </div>
 
-        {faqs.length > 0 ? (
+        {faqs.length > 0 && (
           <div className="results">
             <h2>Search Results ({faqs.length})</h2>
             {faqs.map((faq) => (
@@ -308,20 +325,35 @@ export default function Home() {
               />
             ))}
           </div>
-        ) : (
-          !searching &&
-          searchQuery && (
-            <div className="no-results">
-              No results found. Try a different search term.
-            </div>
-          )
         )}
+
 
         {error && (
           <div className="error-message">
             <p>{error}</p>
           </div>
+      
         )}
+        <footer
+          style={{
+            marginTop: '2rem',
+            padding: '1rem',
+            background: '#f0f0f0',
+            textAlign: 'center'
+          }}
+        >
+          <p>
+            Read more about Just The FAQs on{' '}
+            <a
+              href="https://github.com/lrspeiser/JustTheFAQs"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'blue', textDecoration: 'underline' }}
+            >
+              GitHub
+            </a>
+          </p>
+        </footer>
       </main>
     </>
   );
