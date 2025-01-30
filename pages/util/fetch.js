@@ -10,6 +10,9 @@ export default function FetchAndGeneratePage() {
   const [successCount, setSuccessCount] = useState(0);
   const [failureCount, setFailureCount] = useState(0);
 
+  // NEW: State to track whether the user requested a stop
+  const [stopRequested, setStopRequested] = useState(false);
+
   // Step 1: Get a list of pages that need to be processed
   const handleGetPendingPages = async () => {
     setLoading(true);
@@ -52,6 +55,9 @@ export default function FetchAndGeneratePage() {
     // Reset counters
     setSuccessCount(0);
     setFailureCount(0);
+
+    // Reset any previous stop request
+    setStopRequested(false);
 
     setLoading(true);
     setMessage(`Starting throttled processing of ${countToProcess} pages...`);
@@ -116,6 +122,13 @@ export default function FetchAndGeneratePage() {
       for (let i = 0; i < pagesToProcess.length; i += CONCURRENCY) {
         const batch = pagesToProcess.slice(i, i + CONCURRENCY);
 
+        // NEW: Check if the user clicked "Stop" before starting a new batch
+        if (stopRequested) {
+          console.warn("[handleProcessPages] Stop requested; not starting next batch.");
+          setMessage("Stopped before starting the next batch.");
+          break;
+        }
+
         // Process them in parallel
         const batchResults = await Promise.all(
           batch.map((page, indexInBatch) => processSinglePage(page, i + indexInBatch))
@@ -143,6 +156,12 @@ export default function FetchAndGeneratePage() {
     }
   };
 
+  // NEW: Stop button sets stopRequested = true
+  const handleStop = () => {
+    setStopRequested(true);
+    setMessage("Stop requested: finishing current batch but no more after that.");
+  };
+
   return (
     <div style={{ margin: "2rem" }}>
       <h1>Fetch and Generate</h1>
@@ -166,6 +185,15 @@ export default function FetchAndGeneratePage() {
         </label>
         <button onClick={handleProcessPages} disabled={loading || !pendingPages.length}>
           {loading ? "Processing..." : "Process"}
+        </button>
+
+        {/* NEW: The Stop button */}
+        <button
+          onClick={handleStop}
+          disabled={!loading}
+          style={{ marginLeft: "1rem" }}
+        >
+          Stop
         </button>
       </div>
 
