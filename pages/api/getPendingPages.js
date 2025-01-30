@@ -1,4 +1,12 @@
 // pages/api/getPendingPages.js
+
+export const config = {
+  api: {
+    responseLimit: false, // or '8mb' or whatever limit you want
+  },
+};
+
+
 import { initClients } from "../../lib/fetchAndGenerate";
 
 export default async function handler(req, res) {
@@ -16,7 +24,7 @@ export default async function handler(req, res) {
     }
 
     console.log("[getPendingPages] Fetching unprocessed pages from 'processing_queue'...");
-    const targetLimit = parseInt(req.query.limit || "20000", 10);
+    const targetLimit = parseInt(req.query.limit || "50000", 10);
     const batchSize = 1000; // Fetch in batches of 1000
     let allData = [];
 
