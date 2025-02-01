@@ -20,8 +20,8 @@ export default async function handler(req, res) {
     // 1) If the front-end passes an ID (Step 2: from your "pendingPages" array)
     if (id) {
       console.log(`[fetch-and-generate] Received ID=${id}, using DB-based flow...`);
-
       const success = await processOnePageFromDB(id);
+
       if (success) {
         return res.status(200).json({ message: `Successfully processed ID=${id}` });
       } else {
@@ -32,8 +32,8 @@ export default async function handler(req, res) {
     // 2) Otherwise, if the front-end passes a "title" (the old approach)
     else if (title) {
       console.log(`[fetch-and-generate] Received title="${title}", using direct wiki fetch flow...`);
-      // If you already have content, images, etc. in your DB, you can retrieve them instead.
-      // Otherwise, fetch from Wikipedia:
+
+      // Example placeholders for your old approach:
       const metadata = await fetchWikipediaMetadata(title);
       const { lastUpdated, humanReadableName } = metadata;
 
