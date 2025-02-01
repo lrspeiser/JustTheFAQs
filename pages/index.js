@@ -24,23 +24,31 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
     return faq.human_readable_name || 'Uncategorized';
   };
 
+  /**
+   * Updated formatWikiSlug function:
+   * • It now decodes the URL, strips the "/wiki/" prefix (if present),
+   *   and converts it to lower-case.
+   * • It does NOT replace underscores with dashes.
+   */
   const formatWikiSlug = (url) => {
     if (!url) return '';
     try {
       let cleanUrl = decodeURIComponent(url);
-
-      // Ensure we only strip the "/wiki/" prefix and nothing else
+      // Remove only the "/wiki/" prefix if present
       if (cleanUrl.startsWith('/wiki/')) {
         cleanUrl = cleanUrl.replace('/wiki/', '');
       }
-
-      // Replace underscores with dashes
-      return cleanUrl.replace(/_/g, '-').toLowerCase();
+      // Return the slug with its original casing
+      return cleanUrl;
     } catch {
-      return url.toLowerCase();
+      return url;
     }
   };
 
+  /**
+   * Format a human-readable version of a wiki slug (if needed).
+   * This function is used for display purposes only.
+   */
   const formatHumanReadableName = (url) => {
     if (!url) return '';
     try {
@@ -57,8 +65,7 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
     }
   };
 
-  // If cross_links is stored as a string, we convert it to an array
-  // If it's an array, we just return it as-is
+  // Convert cross_links to an array if stored as a string
   const getRelatedTopics = () => {
     if (!faq.cross_links) return [];
     try {
@@ -83,6 +90,7 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
     <article className="faq-entry">
       <header className="entry-header">
         {faq.page_slug ? (
+          // Use the updated formatWikiSlug function so that underscores are preserved
           <a href={`/${formatWikiSlug(faq.page_slug)}`} className="page-name">
             {faq.human_readable_name || formatHumanReadableName(faq.page_slug)}
           </a>
@@ -96,7 +104,7 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
         )}
       </header>
 
-      {/* Add this debug line to see the raw page_slug in the UI */}
+      {/* Debug line to display the raw page_slug */}
       <div style={{ fontSize: '0.9em', color: '#999' }}>
         Debug Slug: {faq.page_slug || '(none)'}
       </div>
@@ -104,10 +112,6 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
       {faq.subheader && <div className="subheader">{faq.subheader}</div>}
 
       <div className="question-with-image">
-        {/* 
-          IMPORTANT: We now render the question using dangerouslySetInnerHTML
-          so that stored HTML, e.g. <i>Agent Elvis</i>, will actually display as italic text.
-        */}
         <h2
           className="question"
           dangerouslySetInnerHTML={{
@@ -122,7 +126,6 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
       </div>
 
       <div className="answer-container">
-        {/* The answer was already using dangerouslySetInnerHTML */}
         <div
           dangerouslySetInnerHTML={{
             __html: DOMPurify.sanitize(faq.answer)
@@ -138,7 +141,7 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
               const displayName = formatHumanReadableName(topic);
               const slug = formatWikiSlug(topic);
 
-              // Now using the passed-down existingFaqSlugs
+              // Use existingFaqSlugs to determine if the page exists
               const isPageAvailable = existingFaqSlugs?.includes(slug);
 
               return (
@@ -170,7 +173,8 @@ const FAQEntry = ({ faq, existingFaqSlugs }) => {
 };
 
 const TopicLink = ({ name }) => {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  // For topic links, keep underscores if that's how your slug is stored
+  const slug = name.toLowerCase(); // If your stored slug has underscores, leave them as is.
   return (
     <a href={`/${slug}`} className="related-topic-link">
       {name}
@@ -186,7 +190,7 @@ export default function Home() {
   const [error, setError] = useState(null);
   const [existingFaqSlugs, setExistingFaqSlugs] = useState([]);
 
-  // Fetch existing FAQ slugs when component mounts
+  // Fetch existing FAQ slugs when the component mounts
   useEffect(() => {
     const fetchExistingFaqSlugs = async () => {
       try {
@@ -216,12 +220,11 @@ export default function Home() {
     }
   }, [router.query.q]);
 
-  // Perform the actual search
+  // Perform the search
   const performSearch = async (query) => {
     setSearching(true);
     try {
       console.log('[Home] 🔍 Sending search request for:', query);
-
       const response = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -234,7 +237,6 @@ export default function Home() {
 
       const data = await response.json();
       console.log('[Home] [Search Results] Full response data:', data);
-
       data.forEach((faq, index) => {
         console.log(`[Home] FAQ ${index + 1}:`, {
           id: faq.id,
@@ -243,10 +245,9 @@ export default function Home() {
           faq_file_id: faq.faq_file_id
         });
       });
-
       setFaqs(data);
 
-      // Update URL with the search term, but don't do a full page reload
+      // Update URL with the search term without reloading the page
       router.push(
         {
           pathname: router.pathname,
@@ -264,7 +265,7 @@ export default function Home() {
     }
   };
 
-  // Button click or pressing Enter triggers this
+  // Trigger search on button click or when pressing Enter
   const handleSearch = () => {
     if (searchQuery.trim().length < 3) {
       setError('Please enter at least 3 characters to search');
@@ -285,7 +286,7 @@ export default function Home() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between'  // This pushes them to opposite ends
+            justifyContent: 'space-between'
           }}
         >
           <h1>Just the FAQs!</h1>
@@ -327,12 +328,10 @@ export default function Home() {
           </div>
         )}
 
-
         {error && (
           <div className="error-message">
             <p>{error}</p>
           </div>
-      
         )}
         <footer
           style={{

@@ -151,7 +151,7 @@ Below is the updated schema reflecting all current columns:
 | last_updated            | timestamp without time zone | YES      |                    | Tracks updates                                        |
 | subheader               | text                        | YES      |                    | Indicates FAQ section header                          |
 | cross_link              | text                        | YES      |                    | Comma-separated list of cross-links (related pages)   |
-| image_urls              | text                        | YES      |                    | Typically for storing multiple image links (CSV)      |
+| image_urls              | text                        | YES      |                    | This field is not used anymore (CSV)      |
 | faq_file_id             | integer                     | YES      |                    | **Foreign Key** referencing `faq_files(id)`           |
 | pinecone_upsert_success | boolean                     | NO       | false              | Indicates whether the row was successfully upserted to Pinecone |
 

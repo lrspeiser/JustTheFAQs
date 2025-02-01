@@ -2,21 +2,20 @@ import React, { useState } from "react";
 
 export default function FetchAndGeneratePage() {
   const [pendingPages, setPendingPages] = useState([]);
-  const [message, setMessage] = useState("");
+  const [messageLog, setMessageLog] = useState([]); // We'll store logs as an array of strings
   const [loading, setLoading] = useState(false);
-  const [processCount, setProcessCount] = useState(""); // number of pages to process
+  const [processCount, setProcessCount] = useState("");
 
-  // Keep track of partial successes/failures
+  // Keep track of success/failure counters
   const [successCount, setSuccessCount] = useState(0);
   const [failureCount, setFailureCount] = useState(0);
 
-  // State to track whether the user requested a stop
   const [stopRequested, setStopRequested] = useState(false);
 
-  // Step 1: Get a list of pages that need to be processed
+  // Step 1
   const handleGetPendingPages = async () => {
     setLoading(true);
-    setMessage("Fetching pending pages...");
+    setMessageLog(["Fetching pending pages..."]);
     try {
       const response = await fetch("/api/getPendingPages");
       if (!response.ok) {
@@ -25,46 +24,46 @@ export default function FetchAndGeneratePage() {
       const data = await response.json();
       console.log("Pending pages:", data.pendingPages);
       setPendingPages(data.pendingPages || []);
-      setMessage(`Fetched ${data.pendingPages?.length || 0} pending pages.`);
+      setMessageLog((prev) => [...prev, `Fetched ${data.pendingPages?.length || 0} pending pages.`]);
     } catch (error) {
       console.error("[Frontend] Error fetching pending pages:", error);
-      // Instead of overwriting, we append the error to the existing message:
-      setMessage((prevMsg) => `${prevMsg}\nError: ${error.message}`);
+      setMessageLog((prev) => [...prev, `Error: ${error.message}`]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Step 2: Process X pages from the pending list
+  // Step 2
   const handleProcessPages = async () => {
     if (!processCount || isNaN(processCount)) {
-      setMessage("Please enter a valid number of pages to process.");
+      setMessageLog((prev) => [...prev, "Please enter a valid number of pages to process."]);
       return;
     }
 
     const countToProcess = parseInt(processCount, 10);
     if (countToProcess <= 0) {
-      setMessage("Please enter a number > 0.");
+      setMessageLog((prev) => [...prev, "Please enter a number > 0."]);
       return;
     }
 
     if (pendingPages.length === 0) {
-      setMessage("No pending pages in the list. Please fetch them first.");
+      setMessageLog((prev) => [...prev, "No pending pages in the list. Please fetch them first."]);
       return;
     }
 
     // Reset counters
     setSuccessCount(0);
     setFailureCount(0);
-    // Reset any previous stop request
+
+    // Clear old logs or keep them? Let’s keep them
+    setMessageLog((prev) => [...prev, `Starting throttled processing of ${countToProcess} pages...`]);
     setStopRequested(false);
-
     setLoading(true);
-    setMessage(`Starting throttled processing of ${countToProcess} pages...`);
 
+    // Slice the array
     const pagesToProcess = pendingPages.slice(0, countToProcess);
 
-    // Throttle settings
+    // Concurrency config
     const CONCURRENCY = 40;
     const BATCH_DELAY_MS = 200;
 
@@ -72,7 +71,7 @@ export default function FetchAndGeneratePage() {
 
     const processSinglePage = async (page, index) => {
       try {
-        console.log(`[handleProcessPages] Throttled: Processing #${index + 1}: ${page.title}`);
+        console.log(`[Process] #${index + 1}: ${page.title}`);
         const res = await fetch("/api/util/fetch-and-generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -83,93 +82,74 @@ export default function FetchAndGeneratePage() {
           throw new Error(errData.message || "Failed to process page");
         }
         const data = await res.json();
-        console.log(`[handleProcessPages] Response for page "${page.title}":`, data);
 
-        // PARTIAL UPDATE: remove the page from `pendingPages`
+        // Remove from pending
         setPendingPages((prev) => prev.filter((p) => p.id !== page.id));
 
-        // Increment success count
+        // Increment success
         setSuccessCount((prev) => prev + 1);
 
-        // Show partial progress
-        setSuccessCount((prevSuccessCount) => {
-          const newSuccessCount = prevSuccessCount;
-          const leftInQueue = pendingPages.length - 1;
-          // Append partial success info to message
-          setMessage((prevMsg) =>
-            `${prevMsg}\nFinished "${page.title}". Successes: ${newSuccessCount}, Failures: ${failureCount} (Left: ${leftInQueue})`
-          );
-          return newSuccessCount;
-        });
+        // Add a simple success message
+        setMessageLog((prev) => [...prev, `Finished "${page.title}".`]);
 
         return { title: page.title, success: true };
       } catch (err) {
-        console.error(`[handleProcessPages] Error on page "${page.title}":`, err);
+        console.error(`[Process] Error on "${page.title}":`, err);
         setFailureCount((prev) => prev + 1);
 
-        // *** Append error message instead of overwriting ***
-        setMessage((prevMsg) =>
-          `${prevMsg}\nError processing "${page.title}": ${err.message} (Successes: ${successCount}, Failures: ${failureCount + 1})`
-        );
+        // Log a short error line
+        setMessageLog((prev) => [...prev, `Error processing "${page.title}": ${err.message}`]);
 
         return { title: page.title, success: false, error: err.message };
       }
     };
 
     try {
-      // Batch loop
       for (let i = 0; i < pagesToProcess.length; i += CONCURRENCY) {
-        // If stop requested, break before next batch
         if (stopRequested) {
-          console.warn("[handleProcessPages] Stop requested; not starting next batch.");
-          setMessage((prevMsg) => `${prevMsg}\nStopped before starting the next batch.`);
+          console.warn("[Process] Stop requested; not starting next batch.");
+          setMessageLog((prev) => [...prev, "Stopped before next batch."]);
           break;
         }
 
         const batch = pagesToProcess.slice(i, i + CONCURRENCY);
+
+        // Parallel
         const batchResults = await Promise.all(
-          batch.map((page, indexInBatch) => processSinglePage(page, i + indexInBatch))
+          batch.map((page, idx) => processSinglePage(page, i + idx))
         );
         results = [...results, ...batchResults];
 
-        // If not the last batch, pause
         if (i + CONCURRENCY < pagesToProcess.length) {
-          console.log(`[handleProcessPages] Waiting ${BATCH_DELAY_MS}ms before next batch...`);
-          setMessage((prevMsg) => `${prevMsg}\nWaiting ${BATCH_DELAY_MS / 1000}s before next batch...`);
+          setMessageLog((prev) => [...prev, `Waiting ${BATCH_DELAY_MS / 1000}s before next batch...`]);
           await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
         }
       }
 
-      // Summarize final result
       const successes = results.filter((r) => r.success).length;
       const failures = results.filter((r) => !r.success).length;
-      setMessage((prevMsg) => `${prevMsg}\nFinished throttled processing. Successes: ${successes}, Failures: ${failures}`);
+      setMessageLog((prev) => [...prev, `Finished processing. Successes: ${successes}, Failures: ${failures}`]);
     } catch (err) {
-      console.error("[handleProcessPages] Unexpected error in throttled processing:", err);
-      // *** Append the unexpected error to the existing message ***
-      setMessage((prevMsg) => `${prevMsg}\nUnexpected error: ${err.message}`);
+      console.error("[Process] Unexpected error:", err);
+      setMessageLog((prev) => [...prev, `Unexpected error: ${err.message}`]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Stop button sets stopRequested = true
   const handleStop = () => {
     setStopRequested(true);
-    // Append to existing message
-    setMessage((prevMsg) => `${prevMsg}\nStop requested: finishing current batch but no more after that.`);
+    setMessageLog((prev) => [...prev, "Stop requested: finishing current batch but no more after that."]);
   };
 
   return (
     <div style={{ margin: "2rem" }}>
       <h1>Fetch and Generate</h1>
 
-      {/* Step 1 */}
       <button onClick={handleGetPendingPages} disabled={loading}>
-        {loading ? "Loading..." : "Step 1: Get a list of pages that need processing"}
+        {loading ? "Loading..." : "Step 1: Get a list of pending pages"}
       </button>
 
-      {/* Step 2 */}
       <div style={{ marginTop: "1rem", marginBottom: "1rem" }}>
         <label>
           Step 2: Process{" "}
@@ -179,42 +159,49 @@ export default function FetchAndGeneratePage() {
             onChange={(e) => setProcessCount(e.target.value)}
             style={{ width: "60px" }}
           />
-          {" "}pages from the list
+          {" "}pages
         </label>
         <button onClick={handleProcessPages} disabled={loading || !pendingPages.length}>
           {loading ? "Processing..." : "Process"}
         </button>
-
         <button onClick={handleStop} disabled={!loading} style={{ marginLeft: "1rem" }}>
           Stop
         </button>
       </div>
 
-      {/* Status message (with multi-line support) */}
-      {message && (
-        <pre style={{ whiteSpace: 'pre-wrap', border: '1px solid #ccc', padding: '0.5rem' }}>
-          {message}
-        </pre>
-      )}
+      {/* Real-time counters at the top or bottom (your preference) */}
+      <div style={{ marginBottom: "1rem" }}>
+        <strong>Successes:</strong> {successCount} &nbsp;|&nbsp;
+        <strong>Failures:</strong> {failureCount}
+      </div>
 
-      {/* Render pending pages + partial counters */}
+      {/* Message Log - a scrollable box */}
+      <div
+        style={{
+          maxHeight: "200px",
+          overflowY: "auto",
+          border: "1px solid #ccc",
+          padding: "0.5rem"
+        }}
+      >
+        {messageLog.map((line, idx) => (
+          <div key={idx}>{line}</div>
+        ))}
+      </div>
+
+      {/* Pending pages below */}
       {pendingPages.length > 0 && (
         <div style={{ marginTop: "1rem" }}>
-          <h3>Pending Pages (In Queue): {pendingPages.length}</h3>
+          <h3>Pending Pages: {pendingPages.length}</h3>
           <ul>
-            {pendingPages.map((page, idx) => (
-              <li key={page.id || idx}>
-                <strong>{page.title}</strong> — Status: {page.status}
+            {pendingPages.map((p, i) => (
+              <li key={p.id || i}>
+                <strong>{p.title}</strong> — {p.status}
               </li>
             ))}
           </ul>
         </div>
       )}
-
-      <div style={{ marginTop: "1rem" }}>
-        <strong>Successes:</strong> {successCount} <br />
-        <strong>Failures:</strong> {failureCount}
-      </div>
     </div>
   );
 }
