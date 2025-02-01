@@ -47,7 +47,7 @@ function sleep(ms) {
  * Check if a media URL is broken by detecting "File not found" text.
  * Includes rate-limit handling (429 errors).
  */
-async function isBrokenMedia(url, retryCount = 0) {
+export async function isBrokenMedia(url, retryCount = 0) {
   try {
     const response = await fetch(url, {
       method: "GET",
@@ -171,5 +171,3 @@ async function promptUser(question) {
   });
 }
 
-// Run
-checkAndRemoveBrokenMedia();
