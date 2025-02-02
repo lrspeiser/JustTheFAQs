@@ -32,7 +32,7 @@ export default async function handler(req, res) {
     for (let offset = 0; offset < targetLimit; offset += batchSize) {
       const { data, error } = await supabase
         .from("processing_queue")
-        .select("*")
+        .select("id, title, status, created_at")
         .eq("status", "pending")
         .range(offset, Math.min(offset + batchSize - 1, targetLimit - 1))
         .order("created_at", { ascending: true });
