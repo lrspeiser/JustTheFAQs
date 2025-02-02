@@ -113,6 +113,31 @@ export default function FetchAndGeneratePage() {
   };
 
   // --------------------------------------
+  // NEW: Start Worker on the Server
+  // --------------------------------------
+  const handleStartWorker = async () => {
+    setLoading(true);
+    setMessageLog((prev) => [...prev, "Starting worker process on the server..."]);
+    try {
+      const res = await fetch("/api/start-worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to start worker: HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      console.log("Worker started:", data.message);
+      setMessageLog((prev) => [...prev, `✅ ${data.message}`]);
+    } catch (err) {
+      console.error("Error starting worker:", err);
+      setMessageLog((prev) => [...prev, `Error starting worker: ${err.message}`]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --------------------------------------
   // Existing "Step 2: Process pages with offset" (Browser concurrency)
   // --------------------------------------
   const handleProcessPages = async () => {
@@ -272,7 +297,6 @@ export default function FetchAndGeneratePage() {
             style={{ width: "60px", marginLeft: "0.5rem", marginRight: "1rem" }}
           />
         </label>
-
         <label>
           Process this many pages:
           <input
@@ -282,7 +306,6 @@ export default function FetchAndGeneratePage() {
             style={{ width: "60px", marginLeft: "0.5rem", marginRight: "1rem" }}
           />
         </label>
-
         <label>
           Concurrency:
           <input
@@ -294,12 +317,17 @@ export default function FetchAndGeneratePage() {
         </label>
       </div>
 
+      {/* NEW "Start Worker" Button (Server-Side Process Trigger) */}
+      <button onClick={handleStartWorker} disabled={loading} style={{ marginRight: "1rem" }}>
+        {loading ? "Working..." : "Start Worker (Server-Side)"}
+      </button>
+
       {/* NEW "Create Job" Button (Server-Side Concurrency) */}
       <button onClick={handleCreateJob} disabled={loading} style={{ marginRight: "1rem" }}>
         {loading ? "Working..." : "Create Job (Server-Side)"}
       </button>
 
-      {/* OLD "Process" Approach (Client-Side Concurrency) */}
+      {/* OLD "Process" Approach (Browser-Side Concurrency) */}
       <button
         onClick={handleProcessPages}
         disabled={loading || !pendingPages.length}
