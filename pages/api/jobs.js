@@ -1,5 +1,4 @@
 // pages/api/jobs.js
-
 import { supabase } from "../../lib/supabaseClient";
 
 export default async function handler(req, res) {
@@ -8,47 +7,59 @@ export default async function handler(req, res) {
       return res.status(405).json({ error: "Method not allowed" });
     }
 
-    const { total_pages, page_offset, concurrency } = req.body;
+    const { total_pages, page_offset } = req.body;
 
-    // Basic validation
     if (
       !Number.isInteger(total_pages) ||
       !Number.isInteger(page_offset) ||
-      !Number.isInteger(concurrency) ||
       total_pages <= 0 ||
-      page_offset < 0 ||
-      concurrency <= 0
+      page_offset < 0
     ) {
       return res.status(400).json({ error: "Invalid parameters" });
     }
 
-    // Let's define a "batchSize" to split the total_pages
-    // (Often we'd just reuse 'concurrency' as the batch size, but let's be explicit.)
-    const batchSize = concurrency; // or some other logic
+    // ----------------------------------------
+    // 1) Fetch up to 'total_pages' rows from the queue for real titles
+    // ----------------------------------------
+    const { data: queueRows, error: queueError } = await supabase
+      .from("processing_queue")
+      .select("id, title")
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(total_pages);
 
-    // Calculate how many batches we need
-    const batchCount = Math.ceil(total_pages / batchSize);
+    if (queueError) {
+      console.error("[createJob] ❌ Error fetching queue rows:", queueError);
+      // We won't bail entirely; the fallback is placeholders
+    }
 
-    // We'll create multiple rows in the `jobs` table
-    // Each job will process up to batchSize pages, offset accordingly.
+    // We create exactly ONE job per page:
+    // e.g. if total_pages=500 => 500 jobs
+    // Each job references 1 page offset
+    // That means no concurrency at the job level; concurrency is handled in your worker code.
+
     let insertedJobs = [];
+    for (let i = 0; i < total_pages; i++) {
 
-    let currentOffset = page_offset;
-    let pagesRemaining = total_pages;
+      // If we have a queueRows[i], use that.
+      // Otherwise fallback to the old placeholder approach.
+      const fallbackRow = {
+        id: page_offset + i,
+        title: `Placeholder Title ${page_offset + i}`
+      };
+      const row = (queueRows && queueRows[i]) || fallbackRow;
 
-    for (let i = 0; i < batchCount; i++) {
-      // For the last batch, if pagesRemaining < batchSize, we adjust
-      const thisBatchSize = Math.min(batchSize, pagesRemaining);
-
-      // Insert a new row in `jobs` for this batch
+      // Insert each job row
       const { data, error } = await supabase
         .from("jobs")
         .insert([
           {
-            total_pages: thisBatchSize,
-            page_offset: currentOffset,
-            concurrency,
-            status: "pending"
+            page_id: row.id,
+            page_title: row.title,  // <-- The actual name from 'processing_queue'
+            status: "pending",
+            total_pages: 1,
+            concurrency: 1,
+            page_offset: page_offset + i  // keep the 'page_offset' non-null
           }
         ])
         .select("*")
@@ -56,15 +67,9 @@ export default async function handler(req, res) {
 
       if (error) {
         console.error("[createJob] ❌ Error inserting job batch:", error);
-        // We'll continue but note this in the response
         continue;
       }
-
       insertedJobs.push(data);
-
-      // Update offsets for the next batch
-      currentOffset += thisBatchSize;
-      pagesRemaining -= thisBatchSize;
     }
 
     return res.status(201).json({

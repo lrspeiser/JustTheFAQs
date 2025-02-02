@@ -49,7 +49,7 @@ export default function FetchAndGeneratePage() {
   // --------------------------------------
   const handleCreateJob = async () => {
     setLoading(true);
-    setMessageLog((prev) => [...prev, "Creating job on the server..."]);
+    setMessageLog((prev) => [...prev, "Creating job(s) on the server..."]);
 
     try {
       const countVal = parseInt(processCount, 10);
@@ -63,10 +63,12 @@ export default function FetchAndGeneratePage() {
         offsetVal < 0 ||
         concurrencyVal <= 0
       ) {
-        throw new Error("Please enter valid numbers for process count, offset >= 0, and concurrency > 0.");
+        throw new Error(
+          "Please enter valid numbers for process count, offset >= 0, and concurrency > 0."
+        );
       }
 
-      // POST to /api/jobs (which we'll create or have created)
+      // POST to /api/jobs
       const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -80,12 +82,28 @@ export default function FetchAndGeneratePage() {
       if (!res.ok) {
         throw new Error(`Failed to create job: HTTP ${res.status}`);
       }
-      const { job } = await res.json();
 
-      setMessageLog((prev) => [
-        ...prev,
-        `✅ Created job ID=${job.id} successfully (server will process in background).`
-      ]);
+      // Because /api/jobs now returns { jobs: [...] }, we handle an array of jobs
+      const { jobs } = await res.json();
+
+      // Defensive check: if no jobs returned, throw an error
+      if (!jobs || !jobs.length) {
+        throw new Error("No jobs returned from server");
+      }
+
+      // Show a message for each created job
+      jobs.forEach((j) => {
+        setMessageLog((prev) => [
+          ...prev,
+          `✅ Created job ID=${j.id} successfully (server will process in background).`
+        ]);
+      });
+
+      // Also log them in the console
+      jobs.forEach((j) => {
+        console.log("Job created:", j.id);
+      });
+
     } catch (err) {
       console.error("Error creating job:", err);
       setMessageLog((prev) => [...prev, `Error: ${err.message}`]);
