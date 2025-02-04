@@ -56,10 +56,10 @@ async function main() {
   const { data: rows, error } = await supabase
     .from('processing_queue')
     .select('id, title, slug, status, created_at')
-    .eq('status', 'completed')
+    .in('status', ['completed', 'failed', 'pending'])  // include all desired statuses
     .like('slug', '%-%')
-    .order('id', { ascending: true })  // Newest to oldest
-    .limit(210000);
+    .order('id', { ascending: false })  // Newest to oldest
+    .limit(200000);
 
   if (error) {
     console.error("[fixWikiUrls] Error fetching queue rows:", error);
@@ -130,7 +130,7 @@ async function processRow(row) {
   // 5a. Update processing_queue if the row with oldSlug exists
   const { data: existingProcessing } = await supabase
     .from('processing_queue')
-    .select('id, slug')
+    .select('id, slug, status')
     .eq('slug', oldSlug)
     .maybeSingle();
 
@@ -163,13 +163,14 @@ async function processRow(row) {
     }
   }
 
-  // 6. Update Pinecone metadata for this slug concurrently.
-  await updateSlugOnlyInPinecone(oldSlug, newSlug);
-
-  // Optional delay: if you still want to space out requests a bit (e.g., to avoid rate limits),
-  // uncomment the following line:
-  // await new Promise(r => setTimeout(r, 500));
+  // 6. Update Pinecone metadata only if the row's status is 'completed'
+  if (row.status === 'completed') {
+    await updateSlugOnlyInPinecone(oldSlug, newSlug);
+  } else {
+    console.log(`[Row ${id}] Status is "${row.status}". Skipping Pinecone update as it's not completed.`);
+  }
 }
+
 
 /**
  * Searches Wikipedia for the best matching title.

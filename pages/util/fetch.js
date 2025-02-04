@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { supabase } from "../../lib/supabaseClient";
 
 export default function FetchAndGeneratePage() {
   // --------------------------------------
@@ -18,11 +19,38 @@ export default function FetchAndGeneratePage() {
   const [stopRequested, setStopRequested] = useState(false);
 
   // --------------------------------------
+  // Realtime Subscription: Listen for job updates using Supabase v2's channel API
+  // --------------------------------------
+  useEffect(() => {
+    const channel = supabase
+      .channel("jobs-channel")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "jobs" },
+        (payload) => {
+          const job = payload.new;
+          const message = `Job ID=${job.id} updated: status=${job.status}, error_message=${job.error_message || "None"}, processed_pages=${
+            job.processed_pages && job.processed_pages.length
+              ? job.processed_pages.join(", ")
+              : "None"
+          }`;
+          console.log("Realtime job update:", message);
+          setMessageLog((prev) => [...prev, message]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // --------------------------------------
   // Existing "Step 1: Get Pending Pages"
   // --------------------------------------
   const handleGetPendingPages = async () => {
     setLoading(true);
-    setMessageLog(["Fetching pending pages..."]);
+    setMessageLog((prev) => [...prev, "Fetching pending pages..."]);
     try {
       const response = await fetch("/api/getPendingPages");
       if (!response.ok) {
@@ -75,8 +103,8 @@ export default function FetchAndGeneratePage() {
         body: JSON.stringify({
           total_pages: countVal,
           page_offset: offsetVal,
-          concurrency: concurrencyVal
-        })
+          concurrency: concurrencyVal,
+        }),
       });
 
       if (!res.ok) {
@@ -95,7 +123,7 @@ export default function FetchAndGeneratePage() {
       jobs.forEach((j) => {
         setMessageLog((prev) => [
           ...prev,
-          `✅ Created job ID=${j.id} successfully (server will process in background).`
+          `✅ Created job ID=${j.id} successfully (server will process in background).`,
         ]);
       });
 
@@ -103,7 +131,6 @@ export default function FetchAndGeneratePage() {
       jobs.forEach((j) => {
         console.log("Job created:", j.id);
       });
-
     } catch (err) {
       console.error("Error creating job:", err);
       setMessageLog((prev) => [...prev, `Error: ${err.message}`]);
@@ -117,11 +144,14 @@ export default function FetchAndGeneratePage() {
   // --------------------------------------
   const handleStartWorker = async () => {
     setLoading(true);
-    setMessageLog((prev) => [...prev, "Starting worker process on the server..."]);
+    setMessageLog((prev) => [
+      ...prev,
+      "Starting worker process on the server...",
+    ]);
     try {
       const res = await fetch("/api/start-worker", {
         method: "POST",
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
         throw new Error(`Failed to start worker: HTTP ${res.status}`);
@@ -131,7 +161,10 @@ export default function FetchAndGeneratePage() {
       setMessageLog((prev) => [...prev, `✅ ${data.message}`]);
     } catch (err) {
       console.error("Error starting worker:", err);
-      setMessageLog((prev) => [...prev, `Error starting worker: ${err.message}`]);
+      setMessageLog((prev) => [
+        ...prev,
+        `Error starting worker: ${err.message}`,
+      ]);
     } finally {
       setLoading(false);
     }
@@ -147,15 +180,24 @@ export default function FetchAndGeneratePage() {
     const concurrencyVal = parseInt(concurrency, 10);
 
     if (!countVal || isNaN(countVal) || countVal <= 0) {
-      setMessageLog((prev) => [...prev, "Please enter a valid process count > 0."]);
+      setMessageLog((prev) => [
+        ...prev,
+        "Please enter a valid process count > 0.",
+      ]);
       return;
     }
     if (offsetVal < 0 || isNaN(offsetVal)) {
-      setMessageLog((prev) => [...prev, "Please enter a valid offset >= 0."]);
+      setMessageLog((prev) => [
+        ...prev,
+        "Please enter a valid offset >= 0.",
+      ]);
       return;
     }
     if (!concurrencyVal || isNaN(concurrencyVal) || concurrencyVal <= 0) {
-      setMessageLog((prev) => [...prev, "Please enter a valid concurrency > 0."]);
+      setMessageLog((prev) => [
+        ...prev,
+        "Please enter a valid concurrency > 0.",
+      ]);
       return;
     }
 
@@ -188,7 +230,11 @@ export default function FetchAndGeneratePage() {
     // Helper to process one page
     const processSinglePage = async (page, index) => {
       try {
-        console.log(`[Process] #${index + 1} =>`, page.title, `(ID=${page.id})`);
+        console.log(
+          `[Process] #${index + 1} =>`,
+          page.title,
+          `(ID=${page.id})`
+        );
         const res = await fetch("/api/util/fetch-and-generate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -204,7 +250,9 @@ export default function FetchAndGeneratePage() {
 
         await res.json(); // might read a message
         // Remove from pending
-        setPendingPages((prev) => prev.filter((p) => p.id !== page.id));
+        setPendingPages((prev) =>
+          prev.filter((p) => p.id !== page.id)
+        );
         setSuccessCount((prev) => prev + 1);
 
         setMessageLog((prev) => [
@@ -229,7 +277,10 @@ export default function FetchAndGeneratePage() {
       for (let i = 0; i < pagesToProcess.length; i += concurrencyVal) {
         if (stopRequested) {
           console.warn("[Process] Stop requested; not starting next batch.");
-          setMessageLog((prev) => [...prev, "Stopped before next batch."]);
+          setMessageLog((prev) => [
+            ...prev,
+            "Stopped before next batch.",
+          ]);
           break;
         }
 
@@ -245,7 +296,9 @@ export default function FetchAndGeneratePage() {
             ...prev,
             `Waiting ${BATCH_DELAY_MS / 1000}s before next batch...`,
           ]);
-          await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+          await new Promise((resolve) =>
+            setTimeout(resolve, BATCH_DELAY_MS)
+          );
         }
       }
 
@@ -257,7 +310,10 @@ export default function FetchAndGeneratePage() {
       ]);
     } catch (err) {
       console.error("[Process] Unexpected error:", err);
-      setMessageLog((prev) => [...prev, `Unexpected error: ${err.message}`]);
+      setMessageLog((prev) => [
+        ...prev,
+        `Unexpected error: ${err.message}`,
+      ]);
     } finally {
       setLoading(false);
     }
@@ -318,12 +374,20 @@ export default function FetchAndGeneratePage() {
       </div>
 
       {/* NEW "Start Worker" Button (Server-Side Process Trigger) */}
-      <button onClick={handleStartWorker} disabled={loading} style={{ marginRight: "1rem" }}>
+      <button
+        onClick={handleStartWorker}
+        disabled={loading}
+        style={{ marginRight: "1rem" }}
+      >
         {loading ? "Working..." : "Start Worker (Server-Side)"}
       </button>
 
       {/* NEW "Create Job" Button (Server-Side Concurrency) */}
-      <button onClick={handleCreateJob} disabled={loading} style={{ marginRight: "1rem" }}>
+      <button
+        onClick={handleCreateJob}
+        disabled={loading}
+        style={{ marginRight: "1rem" }}
+      >
         {loading ? "Working..." : "Create Job (Server-Side)"}
       </button>
 
@@ -353,7 +417,7 @@ export default function FetchAndGeneratePage() {
           maxHeight: "200px",
           overflowY: "auto",
           border: "1px solid #ccc",
-          padding: "0.5rem"
+          padding: "0.5rem",
         }}
       >
         {messageLog.map((line, idx) => (
