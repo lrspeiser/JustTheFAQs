@@ -1,5 +1,5 @@
 // pages/api/jobs.js
-import { supabase } from "../../lib/supabaseClient";
+import { supabase } from "../../lib/supabaseClient.js";
 
 export default async function handler(req, res) {
   try {
