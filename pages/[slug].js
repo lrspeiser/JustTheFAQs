@@ -1,92 +1,106 @@
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
 import Head from 'next/head';
-import DOMPurify from 'dompurify';
-import { supabase } from '../lib/db';  // Import supabase client directly
+import createDOMPurify from 'dompurify';
+import { supabase } from '../lib/db';
+import { useState, useEffect } from 'react';
 
-export default function FAQPage() {
+export async function getServerSideProps(context) {
+    const { slug } = context.params;
+
+    console.log(`🔍 Debug: Received slug in getServerSideProps -> ${slug}`);
+
+    if (!slug) {
+        return { notFound: true };
+    }
+
+    // Fetch page metadata from `faq_files`
+    const { data: pageMeta, error: metaError } = await supabase
+        .from('faq_files')
+        .select('id, slug, human_readable_name, wiki_url')
+        .eq('slug', slug)
+        .single();
+
+    if (metaError || !pageMeta) {
+        console.error(`❌ Supabase Metadata Error:`, metaError);
+        return { notFound: true };
+    }
+
+    // Fetch all FAQs for this page (including cross-links)
+    const { data: faqData, error: faqError } = await supabase
+        .from('raw_faqs')
+        .select('question, answer, media_link, subheader, cross_link')
+        .eq('faq_file_id', pageMeta.id);
+
+    if (faqError) {
+        console.error(`❌ Supabase FAQ Error:`, faqError);
+    }
+
+    // Fetch all existing FAQ slugs for cross-link verification
+    const { data: faqSlugs } = await supabase.from('faq_files').select('slug');
+
+    return {
+        props: {
+            pageData: {
+                ...pageMeta,
+                faqs: faqData || [],
+            },
+            existingFaqSlugs: faqSlugs?.map(item => item.slug) || [],
+        },
+    };
+}
+
+export default function FAQPage({ pageData, existingFaqSlugs }) {
     const router = useRouter();
-    const { slug, q } = router.query;
-    const [pageData, setPageData] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
-    const [searchQuery, setSearchQuery] = useState('');
+    const { q } = router.query;
+
+    const [searchQuery, setSearchQuery] = useState(q || '');
     const [searching, setSearching] = useState(false);
-    const [existingFaqSlugs, setExistingFaqSlugs] = useState([]);
+    const [error, setError] = useState(null);
+    const [sanitizedFaqs, setSanitizedFaqs] = useState([]);
 
     useEffect(() => {
-        if (q) {
-            setSearchQuery(q);
+        if (typeof window !== 'undefined') {
+            const DOMPurify = createDOMPurify(window);
+
+            setSanitizedFaqs(
+                pageData.faqs.map(faq => ({
+                    ...faq,
+                    question: DOMPurify.sanitize(faq.question || ''),
+                    answer: DOMPurify.sanitize(faq.answer || ''),
+                    crossLinks: faq.cross_link
+                        ? faq.cross_link.split(',').map(link => link.trim()) // Convert CSV string to array
+                        : []
+                }))
+            );
         }
-    }, [q]);
-
-    useEffect(() => {
-        async function loadFaqSlugs() {
-            try {
-                const { data, error } = await supabase
-                    .from('faq_files')
-                    .select('slug');
-
-                if (error) throw error;
-                setExistingFaqSlugs(data.map(item => item.slug) || []);
-            } catch (error) {
-                console.error("Error fetching existing FAQ slugs:", error);
-            }
-        }
-        loadFaqSlugs();
-    }, []);
-
-    useEffect(() => {
-        if (!slug) return;
-
-        const fetchFAQs = async () => {
-            try {
-                const response = await fetch(`/api/faqs-by-page?slug=${slug}`);
-                if (!response.ok) {
-                    if (response.status === 404) {
-                        setError('No FAQs found for this topic.');
-                    } else {
-                        throw new Error('Failed to fetch FAQs');
-                    }
-                    return;
-                }
-
-                const data = await response.json();
-                setPageData(data);
-            } catch (err) {
-                setError(err.message);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchFAQs();
-    }, [slug]);
+    }, [pageData]);
 
     const handleSearch = () => {
         if (searchQuery.trim().length < 3) {
             setError('Please enter at least 3 characters to search');
             return;
         }
-
-        // Navigate back to homepage with search query
-        router.push({
-            pathname: '/',
-            query: { q: searchQuery }
-        });
+        router.push({ pathname: '/', query: { q: searchQuery } });
     };
 
-    if (loading) return <div>Loading...</div>;
-    if (error) return <div className="error-message">{error}</div>;
-    if (!pageData) return null;
+    if (!pageData) {
+        return <div>⚠️ No FAQ found. Please check the URL.</div>;
+    }
+
+    const pageTitle = pageData.human_readable_name || "FAQ Page";
+    const pageDescription = `Find answers to frequently asked questions about ${pageTitle}.`;
 
     return (
         <>
             <Head>
-                <title>{pageData.page_info.title} - FAQs</title>
+                <title>{pageTitle} - FAQs</title>
+                <meta name="description" content={pageDescription} />
+                <meta name="viewport" content="width=device-width, initial-scale=1" />
+                <meta name="robots" content="index, follow" />
+                <meta charSet="UTF-8" />
             </Head>
             <main className="container">
-                <div className="header">
+                <header className="header">
                     <h1>Just the FAQs!</h1>
                     <div className="search-box">
                         <input
@@ -100,82 +114,82 @@ export default function FAQPage() {
                             {searching ? 'Searching...' : 'Search'}
                         </button>
                     </div>
-                </div>
+                </header>
 
-                <div className="page-header">
-                    <h2>{pageData.page_info.title}</h2>
-                </div>
+                <section className="page-header">
+                    <h2>{pageTitle}</h2>
+                </section>
 
-                <div className="faqs">
-                    {pageData.faqs.map((faq) => (
-                        <article key={faq.id} className="faq-entry">
-                            {faq.subheader && (
-                                <div className="subheader">{faq.subheader}</div>
-                            )}
+                <section className="faqs">
+                    {sanitizedFaqs.length === 0 ? (
+                        <p>No FAQs available for this topic.</p>
+                    ) : (
+                        sanitizedFaqs.map((faq, index) => (
+                            <article key={index} className="faq-entry">
+                                {faq.subheader && <h3 className="subheader">{faq.subheader}</h3>}
 
-                            <div className="question-with-image">
-                                <h2 className="question">Question: {faq.question}</h2>
-                                {faq.media_link && (
-                                    <div className="image">
-                                        <img 
-                                            src={faq.media_link} 
-                                            alt="FAQ Thumbnail" 
-                                            loading="lazy" 
-                                        />
+                                <div className="question-with-image">
+                                    <h2 className="question">
+                                        Question: {faq.question}
+                                    </h2>
+                                    {faq.media_link && (
+                                        <div className="image">
+                                            <img 
+                                                src={faq.media_link} 
+                                                alt="FAQ Thumbnail" 
+                                                loading="lazy" 
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="answer-container">
+                                    <div dangerouslySetInnerHTML={{ __html: faq.answer }}></div>
+                                </div>
+
+                                {/* Related Links */}
+                                {faq.crossLinks.length > 0 && (
+                                    <div className="related-links">
+                                        <span>Related Pages:</span>
+                                        <ul>
+                                            {faq.crossLinks.map((link, idx) => {
+                                                let displayName = link.trim();
+                                                if (displayName.startsWith("/wiki/")) {
+                                                    displayName = displayName.replace("/wiki/", "");
+                                                }
+
+                                                const linkSlug = displayName
+                                                    .replace(/_/g, '-') 
+                                                    .replace(/[^a-zA-Z0-9-]+/g, '') 
+                                                    .toLowerCase();
+
+                                                const formattedDisplayName = displayName.replace(/_/g, ' ');
+
+                                                const isPageAvailable = existingFaqSlugs.includes(linkSlug);
+
+                                                return (
+                                                    <li key={idx}>
+                                                        {isPageAvailable ? (
+                                                            <a href={`/${linkSlug}`} className="related-topic-link">
+                                                                {formattedDisplayName}
+                                                            </a>
+                                                        ) : (
+                                                            <span className="unavailable-topic">
+                                                                {formattedDisplayName}
+                                                            </span>
+                                                        )}
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
                                     </div>
                                 )}
-                            </div>
+                            </article>
+                        ))
+                    )}
+                </section>
 
-                            <div className="answer-container">
-                                <div dangerouslySetInnerHTML={{ 
-                                    __html: DOMPurify.sanitize(faq.answer) 
-                                }}></div>
-                            </div>
-
-                            {faq.cross_links.length > 0 && (
-                                <div className="related-links">
-                                    <span>Related Pages:</span>
-                                    <ul>
-                                        {faq.cross_links.map((link, index) => {
-                                            let displayName = link.trim();
-                                            if (displayName.startsWith("/wiki/")) {
-                                                displayName = displayName.replace("/wiki/", "");
-                                            }
-
-                                            // Preserve slug format for URL routing
-                                            const linkSlug = displayName
-                                                .replace(/_/g, '-') // Ensure URL uses dashes
-                                                .replace(/[^a-zA-Z0-9-]+/g, '') // Remove invalid characters
-                                                .toLowerCase();
-
-                                            // Format display name (keep original formatting but replace underscores)
-                                            const formattedDisplayName = displayName.replace(/_/g, ' ');
-
-                                            const isPageAvailable = existingFaqSlugs.includes(linkSlug);
-
-                                            return (
-                                                <li key={index}>
-                                                    {isPageAvailable ? (
-                                                        <a
-                                                            href={`/${linkSlug}`} // ✅ Keep URL with dashes
-                                                            className="related-topic-link"
-                                                        >
-                                                            {formattedDisplayName} {/* ✅ Display with spaces */}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="unavailable-topic">
-                                                            {formattedDisplayName}
-                                                        </span>
-                                                    )}
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
-                                </div>
-                            )}
-                        </article>
-                    ))}
-                </div>
+                {/* Footer */}
                 <footer
                     style={{
                       marginTop: '2rem',
@@ -183,7 +197,7 @@ export default function FAQPage() {
                       background: '#f0f0f0',
                       textAlign: 'center'
                     }}
-                  >
+                >
                     <p>
                       Read more about Just The FAQs on{' '}
                       <a
@@ -195,7 +209,7 @@ export default function FAQPage() {
                         GitHub
                       </a>
                     </p>
-                  </footer>
+                </footer>
             </main>
         </>
     );
